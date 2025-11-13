@@ -1,12 +1,15 @@
+# Arquitetura do Sistema
+
+Este diagrama representa o fluxo de requisições entre os componentes locais e os serviços em nuvem.
+
+```mermaid
 graph TB
     subgraph "Google Cloud"
-        direction TB
         CTX -->|Prompt + Contexto| GEMINI(7. API Gemini 2.5)
         GEMINI -->|Resposta| RESP(8. Resposta Bruta)
     end
 
     subgraph "Ambiente Local/PoC (Docker)"
-        direction LR
         U[Usuário] --> API[1. Endpoint FastAPI]
         API --> S_IN(2. Sanitização de Entrada)
         S_IN --> RBAC(3. RBAC Adaptativo)
