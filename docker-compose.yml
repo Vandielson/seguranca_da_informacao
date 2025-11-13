@@ -1,0 +1,12 @@
+version: '3.8'
+
+services:
+  app:
+    build: ./src
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./src:/app/src
+      - ./data:/app/data  # Mapeia os dados locais para dentro do container
+    env_file:
+      - .env              # Carrega a API key de um arquivo .env
