@@ -1,0 +1,204 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% How to use writeLaTeX: 
+%
+% You edit the source code here on the left, and the preview on the
+% right shows you the result within a few seconds.
+%
+% Bookmark this page and share the URL with your co-authors. They can
+% edit at the same time!
+%
+% You can upload figures, bibliographies, custom classes and
+% styles using the files menu.
+%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Documento SBC com tabela corrigida (sem sobreposições)
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\documentclass[12pt]{article}
+
+\usepackage{sbc-template}
+\usepackage[brazil]{babel}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+
+\usepackage{graphicx,url}
+\usepackage{hyperref}
+\usepackage{booktabs}     % \toprule, \midrule, \bottomrule
+\usepackage{tabularx}     % ainda usado em outras partes se quiser
+\usepackage{array}        % colunas p{..}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\usepackage{placeins}     % \FloatBarrier
+\usepackage{ragged2e}     % \RaggedRight, \justifying
+
+% ---- Colunas com quebra e hifenização (chave para eliminar sobreposição) ----
+\newcolumntype{P}[1]{>{\raggedright\arraybackslash\hspace{0pt}}p{#1}}
+
+% Folga extra para evitar overfull em linhas longas
+\emergencystretch=2em
+\sloppy
+
+\title{Estado da Arte II e Metodologia: Segurança, Privacidade e Conformidade em Aplicações com LLMs}
+
+\author{Leonardo Nunes\inst{1}, Antônio Marcos\inst{1}, Álvaro Gueiros\inst{1}, Lucas William\inst{1},\\
+        Mauro Vinícius\inst{1}, Vandielson Tenório\inst{1}}
+
+\address{Aluno da disciplina de Segurança da Informação do Bacharelado em\\
+Ciência da Computação -- Universidade Federal do Agreste de Pernambuco (UFAPE)}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+This paper advances the second step of a literature review and formalizes the methodology for a proof-of-concept on LLM security. From three complementary sources---risk and privacy challenges, adaptive access control in healthcare, and AI Act compliance guidance---we identify a gap: the lack of an end-to-end, reproducible evaluation framework that jointly measures technical mitigations (e.g., LLM firewall, RAG, sanitization), adaptive RBAC, and evidence of regulatory compliance. We propose an architecture and experimental plan (A/B and ablation) with multi-metric assessment (attack success, precision/recall/F1, latency, cost, and compliance coverage) to fill this gap.
+\end{abstract}
+
+\begin{resumo}
+Este artigo consolida a segunda etapa da revisão bibliográfica e formaliza a metodologia para um \textit{proof-of-concept} em segurança de LLMs. A partir de três fontes complementares---desafios de privacidade e segurança, controle de acesso adaptativo em saúde e diretrizes de conformidade ao AI Act---identificamos a lacuna: ausência de um \textit{framework} avaliativo end-to-end, reprodutível, que integre mitigações técnicas (firewall LLM, RAG, sanitização), RBAC adaptativo e evidências de conformidade. Propomos arquitetura e desenho experimental (A/B e ablação) com avaliação multi-métrica (taxa de sucesso de ataque, precisão/recall/F1, latência, custo e cobertura de compliance) para preencher essa lacuna.
+\end{resumo}
+
+% ------------------------------------------------------------
+\section{Introdução}
+Modelos de linguagem de grande porte (LLMs) ampliaram capacidades de automação e suporte à decisão, mas introduziram novas superfícies de ataque (injeção e \textit{indirect prompt injection}, \textit{insecure output handling}, \textit{denial-of-wallet}/DoS, vazamento de dados e vieses de saída) e responsabilidades regulatórias. A literatura recente oferece: (i) taxonomias de riscos e controles técnicos; (ii) evidências setoriais de controle de acesso adaptativo com ganhos mensuráveis; e (iii) traduções de requisitos regulatórios em ações implementáveis. Apesar disso, ainda falta uma avaliação integrada e padronizada que una esses três eixos em um mesmo experimento reprodutível.
+
+\paragraph{Contribuições.} (1) Identificação de uma lacuna de pesquisa end-to-end; (2) Proposta de arquitetura integrada (sanitização, firewall LLM, RAG, RBAC adaptativo, auditoria/mapeamento de conformidade); (3) Desenho experimental com testes A/B e ablação, e (4) conjunto de métricas para segurança, desempenho, custo e conformidade.
+
+% ------------------------------------------------------------
+\section{Lacuna de Pesquisa}
+Com base no levantamento de desafios de segurança e privacidade em LLMs (controles como \textit{LLM firewall}, RAG, \textit{differential privacy}, HITL) \cite{rathod2024}, no estudo de \textit{RBAC} adaptativo com detecção de anomalias no domínio de saúde \cite{yarram2024}, e no guia prático de conformidade com o \textit{EU AI Act} (papéis, controles e mapeamento a normas) \cite{bunzel2024}, identificamos a seguinte lacuna:
+
+\medskip
+\noindent
+\textbf{Lacuna central:} falta um \textbf{framework avaliativo end-to-end}, reprodutível e alinhado a normas, que combine em uma \textit{mesma} aplicação de LLM: (i) mitigação técnica de riscos (injeção de \textit{prompt}, \textit{output handling}, DoS/\textit{denial-of-wallet}), (ii) \textbf{controle de acesso adaptativo} (RBAC dinâmico com \textit{risk score} e detecção de anomalias), (iii) \textbf{privacidade por design} (sanitização e RAG com repositório controlado), e (iv) \textbf{traçabilidade de conformidade} (AI Act/OWASP/ISO) com evidências objetivas. Hoje há sínteses conceituais, um caso setorial e diretrizes de compliance, porém \textit{não} há avaliação comparativa padronizada do \textit{conjunto} desses controles sob ataques realistas, com métricas unificadas de segurança, privacidade, custo e desempenho.
+
+% ------------------------------------------------------------
+\section{Trabalhos Relacionados}\label{sec:relacionados}
+Levantamentos recentes sistematizam ameaças em LLMs (p.~ex., \textit{prompt injection}, vazamento, DoS, viés) e indicam controles como \textit{LLM firewalls}, sanitização de entrada/saída, RAG, \textit{differential privacy} e HITL \cite{rathod2024}. Em paralelo, no domínio de saúde, \cite{yarram2024} propõem \textit{RBAC} adaptativo acoplado à detecção de anomalias assistida por LLM, com sanitização/redação de entidades sensíveis e avaliação quantitativa (acurácia, precisão, \textit{recall}, F1) em dados sintéticos. No eixo regulatório, \cite{bunzel2024} traduzem o \textit{EU AI Act} em ações implementáveis e mapeiam responsabilidades por papel (provider/hoster/integrator) e controles alinhados a OWASP/ISO/ENISA.
+
+\medskip
+\noindent
+\textbf{Síntese crítica.} Esses trabalhos oferecem (i) taxonomia e controles, (ii) um caso setorial com ganhos medidos, e (iii) ponte normativa$\to$ação. O passo ainda ausente é uma \textbf{avaliação integrada}---com \textit{benchmark} reprodutível e métricas comparáveis---que una mitigação técnica, \textit{RBAC} adaptativo e geração de evidências de conformidade em um \textit{mesmo} pipeline experimental.
+
+% ------------------------------------------------------------
+\section{Tabela Comparativa dos Trabalhos}
+\label{sec:tabela}
+
+\begin{table}[!htbp]
+\centering
+\caption{Comparação dos trabalhos relacionados e evidência da lacuna}
+\label{tab:comparacao}
+\small
+\renewcommand{\arraystretch}{1.3}
+\setlength{\tabcolsep}{3.5pt}
+\begin{tabular}{P{2.9cm} P{3.25cm} P{3.25cm} P{3.25cm} P{3.25cm}}
+\toprule
+\textbf{Eixo} &
+\textbf{Rathod et al.} \cite{rathod2024} &
+\textbf{Yarram et al.} \cite{yarram2024} &
+\textbf{Bunzel} \cite{bunzel2024} &
+\textbf{Lacuna} \\
+\midrule
+Ameaças mapeadas &
+Abrangente (injeção, vazamento, DoS, viés; princípios OWASP) &
+Foco em saúde; acessos e anomalias; avaliação empírica &
+Tradução AI Act $\to$ controles; papéis e responsabilidades &
+Integração prática + avaliação comparativa unificada \\
+\addlinespace[2pt]
+Controles &
+Firewall LLM, DP, RAG, HITL, sanitização E/S &
+RBAC dinâmico + detecção de anomalias; sanitização de \textit{queries} &
+Playbook de compliance e matriz de riscos/controles &
+Arquitetura end-to-end com métricas padronizadas \\
+\addlinespace[2pt]
+Evidência experimental &
+Predominante conceitual/sintética &
+Resultados quantitativos vs.\ regras/assinaturas (A/P/R/F1) &
+Diretrizes sem \textit{benchmark} técnico unificado &
+\textit{Benchmark} reprodutível multi-métrica \\
+\addlinespace[2pt]
+Conformidade/regulação &
+Boas práticas e princípios &
+Menções a HIPAA/GDPR (alto nível) &
+Mapeia AI Act $\leftrightarrow$ OWASP/ISO/ENISA &
+Evidências automáticas e rastreáveis de conformidade \\
+\bottomrule
+\end{tabular}
+\end{table}
+\FloatBarrier
+
+% ------------------------------------------------------------
+\section{Metodologia}
+\label{sec:metodologia}
+
+\subsection{Objetivo e Visão Geral}
+Projetar e avaliar um \textbf{pipeline} de segurança para um aplicativo com LLM (assistente de conhecimento institucional), integrando: \textbf{sanitização de entrada} $\rightarrow$ \textbf{LLM firewall} $\rightarrow$ \textbf{RAG} (base privada) $\rightarrow$ \textbf{RBAC adaptativo} (com \textit{risk score}) $\rightarrow$ \textbf{sanitização de saída} $\rightarrow$ \textbf{auditoria \& mapeamento de conformidade}.
+
+\subsection{Arquitetura do Protótipo (Fim-a-Fim)}
+\begin{enumerate}[leftmargin=1.2cm]
+    \item \textbf{Sanitização de entrada}: NER/\textit{redaction} de PII, \textit{regex} e listas semânticas de bloqueio; normalização de formatos.
+    \item \textbf{LLM Firewall}: regras + detecção semântica de instruções adversariais; \textit{deny-list} de capacidades perigosas; \textit{rate-limiting}. (\cite{rathod2024})
+    \item \textbf{RAG privado}: repositório controlado (documentos permitidos, metadados de confidencialidade/política, \textit{caching} sob política) para reduzir memorizações e vazamento. (\cite{rathod2024})
+    \item \textbf{RBAC adaptativo}: \textit{risk score} por requisição (papel, horário, dispositivo, histórico, semântica da consulta); se risco $\geq$ limiar $\Rightarrow$ MFA/\textit{step-up}/bloqueio. (\cite{yarram2024})
+    \item \textbf{Sanitização de saída}: verificações de \textit{policy}, encoding seguro e filtros de PII/código executável; \textbf{auditoria} \textit{append-only}.
+    \item \textbf{Mapper de conformidade}: geração de evidências para artigos (p.ex., 9/10/11/15) do AI Act, alinhadas a OWASP/ISO/ENISA; explicita papéis e SLAs técnicos. (\cite{bunzel2024})
+\end{enumerate}
+
+\subsection{Ameaças e Cenários de Teste}
+\begin{itemize}[leftmargin=1.2cm]
+    \item \textbf{Ameaças}: \textit{prompt/indirect injection}, \textit{insecure output handling}, \textit{denial-of-wallet}/DoS, \textit{model/knowledge stealing} por \textit{querying}, \textit{membership inference} (nível básico), abuso de papel e \textit{break-glass}.
+    \item \textbf{Desenho experimental}: \textbf{Testes A/B} e \textbf{ablação}:
+    \begin{enumerate}[nosep]
+        \item Baseline (sem controles);
+        \item + Firewall LLM;
+        \item + RAG privado;
+        \item + RBAC adaptativo;
+        \item \textbf{Pipeline completo} (todas as camadas).
+    \end{enumerate}
+    \item \textbf{Dados}: corpus institucional neutro + \textbf{dados sintéticos} no domínio de saúde (evitar PHI, variabilidade controlada), conforme práticas de \cite{yarram2024}.
+\end{itemize}
+
+\subsection{Métricas e Coleta}
+\begin{itemize}[leftmargin=1.2cm]
+    \item \textbf{Segurança/Privacidade}: \textit{Attack Success Rate} (quanto menor, melhor), precisão, \textit{recall} e F1 dos detectores; taxa de vazamento; eficácia de \textit{rate-limiting}.
+    \item \textbf{Desempenho/Custos}: latência p95/p99; custo por requisição; custo por bloqueio; \textit{throughput} sob carga.
+    \item \textbf{Conformidade}: \% de requisitos cobertos (AI Act/OWASP/ISO), papéis definidos e logs exportáveis como evidência.
+\end{itemize}
+
+\subsection{Critérios de Sucesso}
+Redução de $\geq X\%$ na taxa de sucesso de ataque com perda $\leq Y\%$ de qualidade; \textit{overhead} de latência $\leq Z\%$; cobertura de compliance $\geq W\%$ com evidências auditáveis exportadas.
+
+\subsection{Reprodutibilidade e \textit{Open Science}}
+Organização do repositório: \texttt{/src} (módulos de firewall, RAG, RBAC, sanitização, auditoria), \texttt{/eval} (ataques, cenários A/B, métricas), \texttt{/data} (amostras sintéticas e \textit{policy store}), \texttt{/paper} (SBC \LaTeX), \texttt{/slides} (Sprint Review). Scripts de execução e relatórios automatizados para reproduzir todos os experimentos.
+
+% ------------------------------------------------------------
+\section{Conclusão e Próximos Passos}
+Apresentamos a lacuna e um plano metodológico para avaliá-la de forma integrada, com métricas comparáveis e geração de evidências de conformidade. Como próximos passos: (i) implementação do protótipo, (ii) definição dos cenários de ataque e parâmetros de A/B, (iii) execução dos experimentos e análise dos \textit{trade-offs}, e (iv) disponibilização pública dos artefatos e relatórios.
+
+% ------------------------------------------------------------
+\begin{thebibliography}{99}
+
+\bibitem{rathod2024}
+Rathod, \textit{et al.} (2024).
+Privacy and Security Challenges in Large Language Models.
+
+\bibitem{yarram2024}
+Yarram, \textit{et al.} (2024).
+Privacy-Preserving Healthcare Data Security Using LLMs and Adaptive Access Control.
+
+\bibitem{bunzel2024}
+Bunzel (2024).
+Compliance Made Practical: Translating the EU AI Act into Implementable Security Actions.
+
+\end{thebibliography}
+
+% \bibliographystyle{sbc}
+% \bibliography{refs}
+
+\end{document}
+
+
+
+
