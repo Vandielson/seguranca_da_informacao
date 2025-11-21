@@ -5,9 +5,4 @@ langchain
 langchain-google-genai
 chromadb
 presidio-analyzer
-presidio-anonymizer
 pandas
-pytest
-pytest-asyncio
-httpx
-python-dotenv
