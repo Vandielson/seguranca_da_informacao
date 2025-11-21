@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pipeline de Segurança para LLMs</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+            color: #333;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .header {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            padding: 30px;
+            margin-bottom: 30px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+            text-align: center;
+        }
+
+        .header h1 {
+            color: #667eea;
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            font-weight: 700;
+        }
+
+        .header p {
+            color: #666;
+            font-size: 1.1em;
+        }
+
+        .main-content {
+            display: grid;
+            grid-template-columns: 1fr 400px;
+            gap: 30px;
+            margin-bottom: 30px;
+        }
+
+        .chat-container {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+            display: flex;
+            flex-direction: column;
+            height: 600px;
+        }
+
+        .chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            margin-bottom: 20px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 15px;
+            min-height: 400px;
+        }
+
+        .message {
+            margin-bottom: 20px;
+            animation: fadeIn 0.3s ease-in;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .message.user {
+            text-align: right;
+        }
+
+        .message-bubble {
+            display: inline-block;
+            padding: 15px 20px;
+            border-radius: 20px;
+            max-width: 80%;
+            word-wrap: break-word;
+        }
+
+        .message.user .message-bubble {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .message.assistant .message-bubble {
+            background: white;
+            color: #333;
+            border: 2px solid #e0e0e0;
+        }
+
+        .chat-input-container {
+            display: flex;
+            gap: 10px;
+        }
+
+        .chat-input {
+            flex: 1;
+            padding: 15px 20px;
+            border: 2px solid #e0e0e0;
+            border-radius: 25px;
+            font-size: 1em;
+            outline: none;
+            transition: border-color 0.3s;
+        }
+
+        .chat-input:focus {
+            border-color: #667eea;
+        }
+
+        .btn {
+            padding: 15px 30px;
+            border: none;
+            border-radius: 25px;
+            font-size: 1em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn:active {
+            transform: translateY(0);
+        }
+
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .info-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .info-card {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            padding: 25px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+        }
+
+        .info-card h3 {
+            color: #667eea;
+            margin-bottom: 15px;
+            font-size: 1.3em;
+        }
+
+        .risk-score {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            margin-bottom: 15px;
+        }
+
+        .risk-circle {
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5em;
+            font-weight: bold;
+            color: white;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+
+        .risk-low {
+            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+        }
+
+        .risk-medium {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+        }
+
+        .risk-high {
+            background: linear-gradient(135deg, #fa709a 0%, #fee140 100%);
+        }
+
+        .controls-list {
+            list-style: none;
+        }
+
+        .controls-list li {
+            padding: 10px;
+            margin-bottom: 8px;
+            background: #f8f9fa;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .controls-list li::before {
+            content: "✓";
+            color: #11998e;
+            font-weight: bold;
+            font-size: 1.2em;
+        }
+
+        .pipeline-steps {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .pipeline-step {
+            padding: 12px;
+            background: #f8f9fa;
+            border-radius: 10px;
+            border-left: 4px solid #667eea;
+            transition: all 0.3s;
+        }
+
+        .pipeline-step.active {
+            background: #e8f0fe;
+            border-left-color: #11998e;
+            transform: translateX(5px);
+        }
+
+        .user-role-selector {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        .role-btn {
+            flex: 1;
+            padding: 10px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            background: white;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-weight: 500;
+        }
+
+        .role-btn.active {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-color: #667eea;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 20px;
+        }
+
+        .loading.active {
+            display: block;
+        }
+
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .error-message {
+            background: #fee;
+            color: #c33;
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 15px;
+            border-left: 4px solid #c33;
+        }
+
+        .compliance-badges {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 10px;
+        }
+
+        .badge {
+            padding: 6px 12px;
+            background: #e8f0fe;
+            color: #667eea;
+            border-radius: 20px;
+            font-size: 0.85em;
+            font-weight: 600;
+        }
+
+        @media (max-width: 768px) {
+            .main-content {
+                grid-template-columns: 1fr;
+            }
+
+            .header h1 {
+                font-size: 1.8em;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🛡️ Pipeline de Segurança para LLMs</h1>
+            <p>Prova de Conceito - Segurança da Informação</p>
+        </div>
+
+        <div class="main-content">
+            <div class="chat-container">
+                <div class="chat-messages" id="chatMessages">
+                    <div class="message assistant">
+                        <div class="message-bubble">
+                            Olá! Sou um assistente protegido por um pipeline de segurança. 
+                            Como posso ajudá-lo hoje?
+                        </div>
+                    </div>
+                </div>
+
+                <div class="loading" id="loading">
+                    <div class="spinner"></div>
+                    <p style="margin-top: 10px; color: #666;">Processando através do pipeline de segurança...</p>
+                </div>
+
+                <div id="errorContainer"></div>
+
+                <div class="user-role-selector">
+                    <button class="role-btn active" data-role="user" onclick="selectRole('user')">👤 User</button>
+                    <button class="role-btn" data-role="admin" onclick="selectRole('admin')">👑 Admin</button>
+                    <button class="role-btn" data-role="guest" onclick="selectRole('guest')">🔓 Guest</button>
+                </div>
+
+                <div class="chat-input-container">
+                    <input 
+                        type="text" 
+                        class="chat-input" 
+                        id="messageInput" 
+                        placeholder="Digite sua mensagem..."
+                        onkeypress="handleKeyPress(event)"
+                    >
+                    <button class="btn" id="sendBtn" onclick="sendMessage()">Enviar</button>
+                </div>
+            </div>
+
+            <div class="info-panel">
+                <div class="info-card">
+                    <h3>📊 Risk Score</h3>
+                    <div class="risk-score">
+                        <div class="risk-circle" id="riskCircle">-</div>
+                        <div>
+                            <div style="font-size: 1.2em; font-weight: bold;" id="riskValue">Aguardando...</div>
+                            <div style="color: #666; font-size: 0.9em;" id="riskLevel">Nenhuma requisição ainda</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="info-card">
+                    <h3>🔒 Controles Aplicados</h3>
+                    <ul class="controls-list" id="controlsList">
+                        <li>Aguardando requisição...</li>
+                    </ul>
+                </div>
+
+                <div class="info-card">
+                    <h3>🔄 Pipeline de Segurança</h3>
+                    <div class="pipeline-steps">
+                        <div class="pipeline-step" id="step1">1. Sanitização de Entrada</div>
+                        <div class="pipeline-step" id="step2">2. RBAC Adaptativo</div>
+                        <div class="pipeline-step" id="step3">3. Firewall LLM</div>
+                        <div class="pipeline-step" id="step4">4. Chamada ao LLM</div>
+                        <div class="pipeline-step" id="step5">5. Sanitização de Saída</div>
+                        <div class="pipeline-step" id="step6">6. Auditoria</div>
+                    </div>
+                </div>
+
+                <div class="info-card">
+                    <h3>✅ Conformidade</h3>
+                    <div class="compliance-badges" id="complianceBadges">
+                        <span class="badge">Aguardando...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentRole = 'user';
+        let requestId = null;
+
+        function selectRole(role) {
+            currentRole = role;
+            document.querySelectorAll('.role-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            document.querySelector(`[data-role="${role}"]`).classList.add('active');
+        }
+
+        function handleKeyPress(event) {
+            if (event.key === 'Enter') {
+                sendMessage();
+            }
+        }
+
+        function resetPipelineSteps() {
+            for (let i = 1; i <= 6; i++) {
+                document.getElementById(`step${i}`).classList.remove('active');
+            }
+        }
+
+        function animatePipeline() {
+            resetPipelineSteps();
+            let step = 1;
+            const interval = setInterval(() => {
+                if (step <= 6) {
+                    document.getElementById(`step${step}`).classList.add('active');
+                    step++;
+                } else {
+                    clearInterval(interval);
+                }
+            }, 300);
+        }
+
+        function updateRiskScore(score) {
+            const riskCircle = document.getElementById('riskCircle');
+            const riskValue = document.getElementById('riskValue');
+            const riskLevel = document.getElementById('riskLevel');
+
+            riskCircle.textContent = score !== null ? Math.round(score) : '-';
+            riskValue.textContent = score !== null ? `${Math.round(score)}/100` : 'Aguardando...';
+            
+            riskCircle.className = 'risk-circle';
+            if (score !== null) {
+                if (score < 40) {
+                    riskCircle.classList.add('risk-low');
+                    riskLevel.textContent = 'Risco Baixo';
+                } else if (score < 70) {
+                    riskCircle.classList.add('risk-medium');
+                    riskLevel.textContent = 'Risco Médio';
+                } else {
+                    riskCircle.classList.add('risk-high');
+                    riskLevel.textContent = 'Risco Alto';
+                }
+            } else {
+                riskLevel.textContent = 'Nenhuma requisição ainda';
+            }
+        }
+
+        function updateControls(controls) {
+            const controlsList = document.getElementById('controlsList');
+            controlsList.innerHTML = '';
+            
+            if (controls && controls.length > 0) {
+                const controlNames = {
+                    'input_sanitization': 'Sanitização de Entrada',
+                    'rbac_adaptive': 'RBAC Adaptativo',
+                    'firewall_llm': 'Firewall LLM',
+                    'output_sanitization': 'Sanitização de Saída'
+                };
+
+                controls.forEach(control => {
+                    const li = document.createElement('li');
+                    li.textContent = controlNames[control] || control;
+                    controlsList.appendChild(li);
+                });
+            } else {
+                const li = document.createElement('li');
+                li.textContent = 'Aguardando requisição...';
+                controlsList.appendChild(li);
+            }
+        }
+
+        function updateCompliance(evidence) {
+            const badges = document.getElementById('complianceBadges');
+            badges.innerHTML = '';
+
+            if (evidence && evidence.standards_covered) {
+                const standardNames = {
+                    'eu_ai_act': 'EU AI Act',
+                    'owasp': 'OWASP',
+                    'iso': 'ISO',
+                    'enisa': 'ENISA'
+                };
+
+                evidence.standards_covered.forEach(standard => {
+                    const badge = document.createElement('span');
+                    badge.className = 'badge';
+                    badge.textContent = standardNames[standard] || standard;
+                    badges.appendChild(badge);
+                });
+            } else {
+                const badge = document.createElement('span');
+                badge.className = 'badge';
+                badge.textContent = 'Aguardando...';
+                badges.appendChild(badge);
+            }
+        }
+
+        function showError(message) {
+            const errorContainer = document.getElementById('errorContainer');
+            errorContainer.innerHTML = `<div class="error-message">${message}</div>`;
+            setTimeout(() => {
+                errorContainer.innerHTML = '';
+            }, 5000);
+        }
+
+        async function sendMessage() {
+            const input = document.getElementById('messageInput');
+            const message = input.value.trim();
+            const sendBtn = document.getElementById('sendBtn');
+            const loading = document.getElementById('loading');
+
+            if (!message) return;
+
+            // Adiciona mensagem do usuário ao chat
+            const chatMessages = document.getElementById('chatMessages');
+            const userMessage = document.createElement('div');
+            userMessage.className = 'message user';
+            userMessage.innerHTML = `<div class="message-bubble">${message}</div>`;
+            chatMessages.appendChild(userMessage);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+
+            // Limpa input e desabilita botão
+            input.value = '';
+            sendBtn.disabled = true;
+            loading.classList.add('active');
+            animatePipeline();
+
+            try {
+                const response = await fetch('/chat', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        message: message,
+                        user_id: `user_${Date.now()}`,
+                        user_role: currentRole
+                    })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.detail?.error || 'Erro ao processar requisição');
+                }
+
+                // Atualiza informações
+                requestId = data.request_id;
+                updateRiskScore(data.risk_score);
+                updateControls(data.controls_applied);
+                updateCompliance(data.compliance_evidence);
+
+                // Adiciona resposta ao chat
+                const assistantMessage = document.createElement('div');
+                assistantMessage.className = 'message assistant';
+                assistantMessage.innerHTML = `<div class="message-bubble">${data.response}</div>`;
+                chatMessages.appendChild(assistantMessage);
+                chatMessages.scrollTop = chatMessages.scrollHeight;
+
+            } catch (error) {
+                showError(`Erro: ${error.message}`);
+                const errorMessage = document.createElement('div');
+                errorMessage.className = 'message assistant';
+                errorMessage.innerHTML = `<div class="message-bubble" style="background: #fee; color: #c33;">Desculpe, ocorreu um erro: ${error.message}</div>`;
+                chatMessages.appendChild(errorMessage);
+                chatMessages.scrollTop = chatMessages.scrollHeight;
+            } finally {
+                loading.classList.remove('active');
+                sendBtn.disabled = false;
+                input.focus();
+                resetPipelineSteps();
+            }
+        }
+
+        // Inicialização
+        updateRiskScore(null);
+        updateControls([]);
+        updateCompliance(null);
+    </script>
+</body>
+</html>
+
