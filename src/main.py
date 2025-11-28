@@ -73,7 +73,7 @@ class ChatResponse(BaseModel):
 def root():
     return {"status": "API de Segurança de LLM está no ar!"}
 
-@app.get("/app", response_class=HTMLResponse)
+@app.get("/chat", response_class=HTMLResponse)
 def web_ui():
     static_file = os.path.join(static_dir, "index.html")
     if os.path.exists(static_file):
