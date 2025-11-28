@@ -1,0 +1,30 @@
+[
+    {
+        "cenário": "Prompt Seguro",
+        "taxa_detecção": 1.0,
+        "falsos_positivos": 1.0,
+        "latência_média_ms": 13.28,
+        "throughput_req_por_segundo": 75.28
+    },
+    {
+        "cenário": "Prompt Injection 1",
+        "taxa_detecção": 1.0,
+        "falsos_positivos": 0.0,
+        "latência_média_ms": 8.73,
+        "throughput_req_por_segundo": 114.6
+    },
+    {
+        "cenário": "Prompt Injection 2",
+        "taxa_detecção": 1.0,
+        "falsos_positivos": 0.0,
+        "latência_média_ms": 8.56,
+        "throughput_req_por_segundo": 116.76
+    },
+    {
+        "cenário": "Prompt Longo Demais",
+        "taxa_detecção": 1.0,
+        "falsos_positivos": 0.0,
+        "latência_média_ms": 8.97,
+        "throughput_req_por_segundo": 111.46
+    }
+]
