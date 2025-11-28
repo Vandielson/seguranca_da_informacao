@@ -28,8 +28,12 @@ class InputSanitizer:
                 "has_pii": False
             }
         
-        # Detecta PII
-        results = self.analyzer.analyze(text=text, language="pt")
+        # Detecta PII - tenta português primeiro, fallback para inglês
+        try:
+            results = self.analyzer.analyze(text=text, language="pt")
+        except ValueError:
+            # Se português não estiver disponível, usa inglês
+            results = self.analyzer.analyze(text=text, language="en")
         
         # Anonimiza PII encontrado
         anonymized_result = self.anonymizer.anonymize(

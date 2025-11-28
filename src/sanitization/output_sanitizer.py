@@ -34,8 +34,12 @@ class OutputSanitizer:
                 "has_forbidden_content": False
             }
         
-        # Detecta PII
-        results = self.analyzer.analyze(text=text, language="pt")
+        # Detecta PII - tenta português primeiro, fallback para inglês
+        try:
+            results = self.analyzer.analyze(text=text, language="pt")
+        except ValueError:
+            # Se português não estiver disponível, usa inglês
+            results = self.analyzer.analyze(text=text, language="en")
         
         # Verifica conteúdo proibido
         text_lower = text.lower()

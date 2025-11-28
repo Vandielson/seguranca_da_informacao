@@ -12,7 +12,13 @@ class GeminiClient:
             raise ValueError("GEMINI_API_KEY não configurada no .env")
         
         genai.configure(api_key=GEMINI_API_KEY)
-        self.model = genai.GenerativeModel('gemini-pro')
+        # Usa gemini-2.0-flash (modelo disponível e rápido)
+        # Se não funcionar, tenta gemini-2.5-flash
+        try:
+            self.model = genai.GenerativeModel('gemini-2.0-flash')
+        except Exception:
+            # Fallback para gemini-2.5-flash
+            self.model = genai.GenerativeModel('gemini-2.5-flash')
     
     def generate_response(self, prompt: str, context: Optional[str] = None) -> Dict[str, any]:
         """
