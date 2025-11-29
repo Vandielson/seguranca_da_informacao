@@ -67,7 +67,9 @@ Projetar, implementar e avaliar um **middleware de segurança para uma aplicaç�
 
 ## 3. Arquitetura de alto nível
 
-A aplicação é estruturada como um middleware de segurança em frente à API de LLM (Gemini):
+A PoC é implementada como um **middleware de segurança** colocado entre os usuários internos e a API do LLM (Gemini). Toda requisição passa por uma sequência de camadas que combinam segurança, privacidade e conformidade, antes de chegar ao modelo.
+
+### 3.1. Fluxo geral
 
 ```text
 Usuário → API do Middleware → [Sanitização de entrada]
@@ -80,25 +82,44 @@ Usuário → API do Middleware → [Sanitização de entrada]
                               → Resposta ao usuário
 ```
 
-Camadas principais:
+Esse fluxo resume a visão do artigo: nenhum acesso ao LLM é feito sem passar por controles técnicos, e cada decisão é registrada de forma auditável.
+
+### 3.2. Camadas principais
 
 1. **Sanitização de entrada**  
-   Remoção ou mascaramento de PII (NER + redaction), normalização de formatos e uso de regex e listas de bloqueio semânticas.
+   - Remoção ou mascaramento de PII (*Named Entity Recognition + redaction*).  
+   - Normalização de formatos e codificação (Unicode, espaços, tokens suspeitos).  
+   - Uso de regex e listas semânticas de bloqueio para termos e padrões de alto risco.
 
 2. **Firewall LLM**  
-   Regras estáticas para bloquear prompts maliciosos, detecção semântica de instruções adversariais e jailbreaks, rate limiting e controle de tamanho de prompt.
+   - Regras estáticas para bloquear prompts maliciosos e instruções claramente proibidas.  
+   - Heurísticas semânticas para detectar *prompt injection*, *jailbreaks* e tentativas de burlar políticas.  
+   - Mecanismos de **rate limiting** e controle de tamanho de *prompt* para mitigar *denial-of-wallet* e DoS lógico.
 
 3. **RAG privado (repositório de conhecimento)**  
-   Documentos institucionais neutros (sem PII) com metadados de confidencialidade, armazenados em banco vetorial (por exemplo, ChromaDB) com embeddings do Gemini.
+   - Conjunto de documentos institucionais neutros, previamente sanitizados, indexados em um banco vetorial (ex.: **ChromaDB**).  
+   - Embeddings gerados com modelos de embedding do provedor (ex.: Gemini `text-embedding-004`).  
+   - Metadados de confidencialidade e escopo que interagem com as regras de RBAC.
 
-4. **RBAC adaptativo**  
-   Cálculo de *risk score* por requisição (papel, horário, histórico, semântica) com limiares que podem permitir a resposta, exigir autenticação reforçada (*step-up*) ou bloquear e registrar incidente.
+4. **RBAC adaptativo (risk-based access control)**  
+   - Cálculo de um *risk score* por requisição, usando: papel do usuário, horário, contexto lógico, histórico de consultas e semântica do pedido.  
+   - Ações possíveis:  
+     - permitir a requisição,  
+     - exigir autenticação reforçada (*step-up*),  
+     - ou bloquear e registrar incidente.
 
-5. **Sanitização de saída e auditoria**  
-   Filtros de PII e conteúdos proibidos na resposta, checagem de aderência a políticas e registro estruturado de logs em modo *append-only*.
+5. **Sanitização de saída**  
+   - Verificação da resposta do LLM para garantir que PII ou informações sensíveis não sejam reintroduzidas.  
+   - Bloqueio de conteúdos proibidos por política institucional ou regulatória.  
+   - Ajustes finais de formato e tom antes de retornar ao usuário.
 
-6. **Mapper de conformidade**  
-   Mapeia cada controle técnico para requisitos do EU AI Act, boas práticas OWASP, ISO e ENISA, e gera evidências exportáveis (relatórios, dashboards).
+6. **Auditoria e telemetria**  
+   - Logs estruturados (idealmente em formato JSON) com: requisição, contexto, decisões tomadas, métricas de latência, custo e resultado final.  
+   - Registros em modo *append-only*, pensados para uso em auditorias posteriores.
+
+7. **Mapper de conformidade**  
+   - Componente responsável por mapear cada controle técnico a requisitos de normas e boas práticas (AI Act, OWASP LLM Top 10, ISO/IEC 27001, ENISA AI Security).  
+   - Geração de evidências exportáveis (relatórios, dashboards) a partir dos logs, permitindo demonstrar cobertura de requisitos.
 
 ---
 
@@ -137,7 +158,7 @@ A organização fina em submódulos (por exemplo `firewall_llm/`, `sanitization/
 
 ---
 
-## 5. Estrutura alternativa (encaminhamento futuro)
+## 5. Estrutura alternativa (possível encaminhamento futuro)
 
 Caso o projeto evolua para um framework reutilizável ou base para TCC ou artigos futuros, uma estrutura mais modular pode ser adotada:
 
@@ -303,17 +324,63 @@ Scripts específicos (por exemplo, `run_experiments.py`) podem ser adicionados e
 - disparar ataques ou prompts adversariais,
 - salvar métricas em arquivos (CSV, JSON) para posterior análise.
 
+### 9.1. Resultados parciais da Sprint II
+
+Durante a sprint focada em **Execução da Implementação (Parte II)**, foram realizados testes controlados do middleware defensivo com quatro cenários de uso:
+
+- **Prompt Seguro**  
+- **Prompt Injection 1**  
+- **Prompt Injection 2**  
+- **Prompt Longo Demais**  
+
+Para cada cenário foram coletadas métricas de:
+
+- taxa de detecção,  
+- número de falsos positivos,  
+- latência média (ms),  
+- throughput (requisições por segundo).  
+
+#### 9.1.1. Síntese dos resultados
+
+- **100% de detecção** em todos os cenários de teste.  
+- Apenas **1 falso positivo**, observado no cenário *Prompt Seguro*.  
+- **Latência média** entre aproximadamente **8,56 ms e 13,28 ms**.  
+- **Throughput** entre aproximadamente **75 req/s e 117 req/s**.  
+
+#### 9.1.2. Tabela consolidada
+
+| Cenário              | Detecção | Falsos Positivos | Latência (ms) | Throughput (req/s) |
+|----------------------|----------|------------------|----------------|---------------------|
+| Prompt Seguro        | 100%     | 1                | 13.28          | 75.28              |
+| Prompt Injection 1   | 100%     | 0                | 8.73           | 114.60             |
+| Prompt Injection 2   | 100%     | 0                | 8.56           | 116.76             |
+| Prompt Longo Demais  | 100%     | 0                | 8.97           | 111.46             |
+
+#### 9.1.3. Interpretação
+
+- O firewall LLM e as rotinas de sanitização estão conseguindo bloquear a totalidade dos ataques de *prompt injection* avaliados.  
+- O impacto de desempenho é baixo, com latências compatíveis com uso interativo.  
+- A ocorrência de um único falso positivo indica necessidade de ajuste fino dos limiares de detecção, mas já sugere boa calibragem inicial.  
+
+O relatório detalhado dos testes se encontra em:
+
+```text
+docs/Resultado-das-Teste-de-Seguranca.pdf
+```
+
+Esse documento descreve o procedimento dos testes e as métricas geradas a partir da PoC em execução.
+
 ---
 
 ## 10. Reprodutibilidade
 
 Para que outra pessoa consiga reproduzir o estudo, basta:
 
-1. Clonar o repositório e configurar o `.env`.
-2. Executar `setup.sh` para preparar o ambiente (ou seguir as instruções equivalentes em Windows).
-3. Subir os serviços com `docker compose up -d`.
-4. Popular o banco vetorial (se houver script de *seed*).
-5. Usar os scripts de teste (`EXECUTAR_TESTES.ps1`, `TESTAR_API.ps1` e futuros scripts Python) e analisar os resultados.
+1. Clonar o repositório e configurar o `.env`.  
+2. Executar `setup.sh` para preparar o ambiente (ou seguir as instruções equivalentes em Windows).  
+3. Subir os serviços com `docker compose up -d`.  
+4. Popular o banco vetorial (se houver script de *seed*).  
+5. Usar os scripts de teste (`EXECUTAR_TESTES.ps1`, `TESTAR_API.ps1` e futuros scripts Python) e analisar os resultados.  
 
 A documentação em `docs/` e as apresentações em `apresentacoes/` ajudam a entender o racional por trás das escolhas de arquitetura e metodologia, e se conectam diretamente ao texto do artigo da disciplina.
 
@@ -321,9 +388,9 @@ A documentação em `docs/` e as apresentações em `apresentacoes/` ajudam a en
 
 ## 11. Referências (nível de disciplina)
 
-- Rathod et al. (2024). *Privacy and Security Challenges in Large Language Models.*
-- Yarram et al. (2024). *Privacy-Preserving Healthcare Data Security Using LLMs and Adaptive Access Control.*
-- Bunzel (2024). *Compliance Made Practical: Translating the EU AI Act into Implementable Security Actions.*
+- Rathod et al. (2024). *Privacy and Security Challenges in Large Language Models.*  
+- Yarram et al. (2024). *Privacy-Preserving Healthcare Data Security Using LLMs and Adaptive Access Control.*  
+- Bunzel (2024). *Compliance Made Practical: Translating the EU AI Act into Implementable Security Actions.*  
 
 ---
 
@@ -334,4 +401,4 @@ A documentação em `docs/` e as apresentações em `apresentacoes/` ajudam a en
 - Álvaro Gueiros  
 - Lucas William  
 - Mauro Vinícius  
-- Vandielson Tenório
+- Vandielson Tenório  
