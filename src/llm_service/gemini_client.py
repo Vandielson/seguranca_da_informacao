@@ -1,6 +1,6 @@
 """Cliente para integração com Google Gemini API."""
 import google.generativeai as genai
-from config import GEMINI_API_KEY
+from src.config import GEMINI_API_KEY
 from typing import Optional, Dict
 
 

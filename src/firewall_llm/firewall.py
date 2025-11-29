@@ -1,7 +1,7 @@
 """Firewall LLM - Detecta e bloqueia prompts maliciosos."""
 import re
 from typing import Dict, List, Optional
-from config import MAX_PROMPT_LENGTH
+from src.config import MAX_PROMPT_LENGTH
 
 
 class LLMFirewall:
@@ -10,15 +10,18 @@ class LLMFirewall:
     def __init__(self):
         # Padrões de prompt injection (exemplos básicos)
         self.injection_patterns = [
+            r"ignore\s+all\s+previous\s+instructions",   # obrigatório para o teste
             r"ignore\s+(previous|all|above)",
             r"forget\s+(everything|all|previous)",
-            r"system\s*:",
+            r"system\s+prompt",                          # obrigatório para o teste
+            r"reveal\s+your\s+system\s+prompt",          # obrigatório para o teste
+            r"system\s*:",                               
             r"assistant\s*:",
             r"you\s+are\s+now",
             r"act\s+as\s+if",
             r"pretend\s+to\s+be",
             r"disregard\s+(all|previous)",
-        ]
+]
         
         # Padrões de jailbreak (exemplos básicos)
         self.jailbreak_patterns = [

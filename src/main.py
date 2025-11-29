@@ -8,12 +8,12 @@ from datetime import datetime
 import os
 
 # Importações dos módulos de segurança
-from sanitization.input_sanitizer import InputSanitizer
-from sanitization.output_sanitizer import OutputSanitizer
-from firewall_llm.firewall import LLMFirewall
-from rbac_adaptativo.rbac import AdaptiveRBAC
-from llm_service.gemini_client import GeminiClient
-from compliance.mapper import ComplianceMapper
+from src.sanitization.input_sanitizer import InputSanitizer
+from src.sanitization.output_sanitizer import OutputSanitizer
+from src.firewall_llm.firewall import LLMFirewall
+from src.rbac_adaptativo.rbac import AdaptiveRBAC
+from src.llm_service.gemini_client import GeminiClient
+from src.compliance.mapper import ComplianceMapper
 
 app = FastAPI(
     title="Pipeline de Segurança para LLMs",
@@ -69,14 +69,18 @@ class ChatResponse(BaseModel):
     compliance_evidence: Optional[dict] = None
 
 
-@app.get("/", response_class=HTMLResponse)
-def read_root():
-    """Endpoint principal que retorna a interface web."""
+@app.get("/")
+def root():
+    return {"status": "API de Segurança de LLM está no ar!"}
+
+@app.get("/chat", response_class=HTMLResponse)
+def web_ui():
     static_file = os.path.join(static_dir, "index.html")
     if os.path.exists(static_file):
         with open(static_file, "r", encoding="utf-8") as f:
             return HTMLResponse(content=f.read())
-    return HTMLResponse(content="<h1>API de Segurança de LLM está no ar!</h1><p>Interface web não encontrada.</p>")
+    return HTMLResponse(content="<h1>Interface web não encontrada.</h1>")
+
 
 @app.get("/api/health")
 def health_check():
