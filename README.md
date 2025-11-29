@@ -362,10 +362,10 @@ Para cada cenário foram coletadas métricas de:
 - O impacto de desempenho é baixo, com latências compatíveis com uso interativo.  
 - A ocorrência de um único falso positivo indica necessidade de ajuste fino dos limiares de detecção, mas já sugere boa calibragem inicial.  
 
-O relatório detalhado dos testes se encontra em:
+O relatório detalhado dos testes se encontra em apresentações:
 
 ```text
-docs/Resultado-das-Teste-de-Seguranca.pdf
+apresentacoes/apresentação_atividade06.pdf
 ```
 
 Esse documento descreve o procedimento dos testes e as métricas geradas a partir da PoC em execução.
