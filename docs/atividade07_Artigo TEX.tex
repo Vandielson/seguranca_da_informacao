@@ -1,0 +1,389 @@
+\documentclass[12pt]{article}
+
+\usepackage{sbc-template}
+\usepackage[brazil]{babel}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+
+\usepackage{graphicx,url}
+\usepackage{hyperref}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{array}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\usepackage{placeins}
+\usepackage{ragged2e}
+
+\newcolumntype{P}[1]{>{\raggedright\arraybackslash\hspace{0pt}}p{#1}}
+
+\emergencystretch=2em
+\sloppy
+
+\title{Estado da Arte II e Metodologia: Segurança, Privacidade e Conformidade em Aplicações com LLMs}
+
+\author{Leonardo Nunes\inst{1}, Antonio Marcos\inst{1}, Álvaro Gueiros\inst{1}, Lucas William\inst{1},\\
+        Mauro Vinícius\inst{1}, Vandielson Tenório\inst{1}}
+
+\address{Aluno da disciplina de Segurança da Informação do Bacharelado em\\
+Ciência da Computação -- Universidade Federal do Agreste de Pernambuco (UFAPE)}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+This paper advances the second step of a literature review and formalizes the methodology for a proof-of-concept on LLM security. From three complementary sources---risk and privacy challenges, adaptive access control in healthcare, and AI Act compliance guidance---we identify a gap: the lack of an end-to-end, reproducible evaluation framework that jointly measures technical mitigations (e.g., LLM firewall, RAG, sanitization), adaptive RBAC, and evidence of regulatory compliance. We propose an architecture and experimental plan (A/B and ablation) with multi-metric assessment (attack success, precision/recall/F1, latency, cost, and compliance coverage) to fill this gap. In the current stage, we detail the experimental setup (hardware, software, datasets) and automation scripts required for reproducible deployment, and we report initial partial results in which the guardrail fully blocks known attack patterns but, in its current configuration, also rejects all benign prompts, highlighting the need for threshold tuning and refinement of detection rules.
+\end{abstract}
+
+\begin{resumo}
+Este artigo consolida a segunda etapa da revisão bibliográfica e formaliza a metodologia para um \textit{proof-of-concept} em segurança de LLMs. A partir de três fontes complementares---desafios de privacidade e segurança, controle de acesso adaptativo em saúde e diretrizes de conformidade ao AI Act---identificamos a lacuna: ausência de um \textit{framework} avaliativo end-to-end, reprodutível, que integre mitigações técnicas (firewall LLM, RAG, sanitização), RBAC adaptativo e evidências de conformidade. Propomos arquitetura e desenho experimental (A/B e ablação) com avaliação multi-métrica (taxa de sucesso de ataque, precisão/recall/F1, latência, custo e cobertura de compliance) para preencher essa lacuna. Na etapa atual, detalhamos o setup experimental (hardware, software, \textit{datasets}) e os scripts de automação necessários para uma implantação reprodutível, bem como os primeiros resultados parciais, nos quais o guardrail bloqueia totalmente os vetores de ataque conhecidos, mas também rejeita todo o tráfego benigno na configuração atual, evidenciando a necessidade de ajuste de limiares e regras de detecção.
+\end{resumo}
+
+\section{Introdução}
+Modelos de linguagem de grande porte (LLMs) ampliaram capacidades de automação e suporte à decisão, mas introduziram novas superfícies de ataque (injeção e \textit{indirect prompt injection}, \textit{insecure output handling}, \textit{denial-of-wallet}/DoS, vazamento de dados e vieses de saída) e responsabilidades regulatórias. A literatura recente oferece: (i) taxonomias de riscos e controles técnicos; (ii) evidências setoriais de controle de acesso adaptativo com ganhos mensuráveis; e (iii) traduções de requisitos regulatórios em ações implementáveis. Apesar disso, ainda falta uma avaliação integrada e padronizada que una esses três eixos em um mesmo experimento reprodutível.
+
+\paragraph{Contribuições.} (1) Identificação de uma lacuna de pesquisa end-to-end; (2) Proposta de arquitetura integrada (sanitização, firewall LLM, RAG, RBAC adaptativo, auditoria/mapeamento de conformidade); (3) Desenho experimental com testes A/B e ablação; (4) conjunto de métricas para segurança, desempenho, custo e conformidade; e (5) planejamento detalhado do setup experimental (ambiente, \textit{datasets}, scripts de configuração).
+
+\section{Lacuna de Pesquisa}
+Com base no levantamento de desafios de segurança e privacidade em LLMs (controles como \textit{LLM firewall}, RAG, \textit{differential privacy}, HITL) \cite{rathod2024}, no estudo de \textit{RBAC} adaptativo com detecção de anomalias no domínio de saúde \cite{yarram2024}, e no guia prático de conformidade com o \textit{EU AI Act} (papéis, controles e mapeamento a normas) \cite{bunzel2024}, identificamos a seguinte lacuna:
+
+\medskip
+\noindent
+\textbf{Lacuna central:} falta um \textbf{framework avaliativo end-to-end}, reprodutível e alinhado a normas, que combine em uma \textit{mesma} aplicação de LLM: (i) mitigação técnica de riscos (injeção de \textit{prompt}, \textit{output handling}, DoS/\textit{denial-of-wallet}), (ii) \textbf{controle de acesso adaptativo} (RBAC dinâmico com \textit{risk score} e detecção de anomalias), (iii) \textbf{privacidade por design} (sanitização e RAG com repositório controlado), e (iv) \textbf{traçabilidade de conformidade} (AI Act/OWASP/ISO) com evidências objetivas. Hoje há sínteses conceituais, um caso setorial e diretrizes de compliance, porém \textit{não} há avaliação comparativa padronizada do \textit{conjunto} desses controles sob ataques realistas, com métricas unificadas de segurança, privacidade, custo e desempenho.
+
+\section{Trabalhos Relacionados}\label{sec:relacionados}
+Levantamentos recentes sistematizam ameaças em LLMs (p.~ex., \textit{prompt injection}, vazamento, DoS, viés) e indicam controles como \textit{LLM firewalls}, sanitização de entrada/saída, RAG, \textit{differential privacy} e HITL \cite{rathod2024}. Em paralelo, no domínio de saúde, \cite{yarram2024} propõem \textit{RBAC} adaptativo acoplado à detecção de anomalias assistida por LLM, com sanitização/redação de entidades sensíveis e avaliação quantitativa (acurácia, precisão, \textit{recall}, F1) em dados sintéticos. No eixo regulatório, \cite{bunzel2024} traduzem o \textit{EU AI Act} em ações implementáveis e mapeiam responsabilidades por papel (provider/hoster/integrator) e controles alinhados a OWASP/ISO/ENISA.
+
+\medskip
+\noindent
+\textbf{Síntese crítica.} Esses trabalhos oferecem (i) taxonomia e controles, (ii) um caso setorial com ganhos medidos, e (iii) ponte normativa$\to$ação. O passo ainda ausente é uma \textbf{avaliação integrada}, com \textit{benchmark} reprodutível e métricas comparáveis, que una mitigação técnica, \textit{RBAC} adaptativo e geração de evidências de conformidade em um \textit{mesmo} pipeline experimental.
+
+\section{Tabela Comparativa dos Trabalhos}
+\label{sec:tabela}
+
+\begin{table}[!htbp]
+\centering
+\caption{Comparação dos trabalhos relacionados e evidência da lacuna}
+\label{tab:comparacao}
+\small
+\renewcommand{\arraystretch}{1.3}
+\setlength{\tabcolsep}{3.5pt}
+\begin{tabular}{P{2.9cm} P{3.25cm} P{3.25cm} P{3.25cm} P{3.25cm}}
+\toprule
+\textbf{Eixo} &
+\textbf{Rathod et al.} \cite{rathod2024} &
+\textbf{Yarram et al.} \cite{yarram2024} &
+\textbf{Bunzel} \cite{bunzel2024} &
+\textbf{Lacuna} \\
+\midrule
+Ameaças mapeadas &
+Abrangente (injeção, vazamento, DoS, viés; princípios OWASP) &
+Foco em saúde; acessos e anomalias; avaliação empírica &
+Tradução AI Act $\to$ controles; papéis e responsabilidades &
+Integração prática e avaliação comparativa unificada \\
+\addlinespace[2pt]
+Controles &
+Firewall LLM, DP, RAG, HITL, sanitização E/S &
+RBAC dinâmico e detecção de anomalias; sanitização de \textit{queries} &
+Playbook de compliance e matriz de riscos/controles &
+Arquitetura end-to-end com métricas padronizadas \\
+\addlinespace[2pt]
+Evidência experimental &
+Predominante conceitual/sintética &
+Resultados quantitativos vs.\ regras/assinaturas (A/P/R/F1) &
+Diretrizes sem \textit{benchmark} técnico unificado &
+\textit{Benchmark} reprodutível multi-métrica \\
+\addlinespace[2pt]
+Conformidade/regulação &
+Boas práticas e princípios &
+Menções a HIPAA/GDPR (alto nível) &
+Mapeia AI Act $\leftrightarrow$ OWASP/ISO/ENISA &
+Evidências automáticas e rastreáveis de conformidade \\
+\bottomrule
+\end{tabular}
+\end{table}
+\FloatBarrier
+
+\section{Metodologia}
+\label{sec:metodologia}
+
+\subsection{Objetivo e Visão Geral}
+O objetivo é projetar e avaliar um \textbf{pipeline} de segurança para um aplicativo com LLM (assistente de conhecimento institucional), integrando: \textbf{sanitização de entrada} $\rightarrow$ \textbf{LLM firewall} $\rightarrow$ \textbf{RAG} (base privada) $\rightarrow$ \textbf{RBAC adaptativo} (com \textit{risk score}) $\rightarrow$ \textbf{sanitização de saída} $\rightarrow$ \textbf{auditoria e mapeamento de conformidade}. A etapa atual foca no \textbf{planejamento do setup}: definição de ambiente (hardware/software), \textit{datasets}, automação de configuração e diagrama da arquitetura da solução.
+
+\subsection{Ambiente Experimental e Requisitos de Infraestrutura}
+Para garantir isolamento e reprodutibilidade, o experimento será executado em um ambiente baseado em contêineres, com possibilidade de encapsulamento em máquina virtual para cenários de hardening.
+
+\begin{itemize}[leftmargin=1.2cm]
+    \item \textbf{Hardware mínimo}:
+    \begin{itemize}[nosep]
+        \item Host (ou VM) com 4 vCPUs, 8--16\,GB de RAM e $\geq 40$\,GB de armazenamento.
+        \item Conectividade estável à Internet para acesso à API do provedor de LLM.
+        \item Opcional: GPU para experimentos de maior carga, embora a PoC inicial seja CPU-bound.
+    \end{itemize}
+
+    \item \textbf{Software de base}:
+    \begin{itemize}[nosep]
+        \item Sistema operacional: distribuição Linux (p.\,ex., Ubuntu Server) ou equivalente em VM (VirtualBox, VMware ou KVM).
+        \item Docker Engine e Docker Compose para orquestração de serviços.
+        \item Git para versionamento do código e scripts de setup.
+    \end{itemize}
+
+    \item \textbf{Stack da aplicação middleware}:
+    \begin{itemize}[nosep]
+        \item Linguagem: Python 3.10+.
+        \item Servidor da PoC: \textit{FastAPI} expondo a API do middleware.
+        \item LLM externo: Google Gemini 2.5 (acesso via API).
+        \item Serviço de embeddings: \texttt{text-embedding-004} (Google).
+        \item Banco vetorial (RAG): ChromaDB, executado em contêiner dedicado ou integrado ao serviço Python.
+        \item Módulos Python customizados para firewall LLM, RBAC adaptativo, sanitização e auditoria.
+    \end{itemize}
+
+    \item \textbf{Ferramentas de apoio}:
+    \begin{itemize}[nosep]
+        \item Diagramação de arquitetura em diagrams.net (draw.io), Lucidchart ou Mermaid.js (no repositório).
+        \item Ferramentas de logging e métricas (por exemplo, \textit{logging} estruturado em JSON e \textit{exporters} para posterior análise).
+    \end{itemize}
+\end{itemize}
+
+\subsection{Implementação atual no repositório}
+O repositório público da disciplina já materializa parte deste planejamento metodológico. A organização atual inclui:
+
+\begin{itemize}[leftmargin=1.2cm]
+    \item diretórios de documentação e apresentações: \texttt{apresentacaoequipe/}, \texttt{apresentacoes/}, \texttt{docs/}, \texttt{instrucoes\_execucao/}, \texttt{outros\_artefatos/};
+    \item diretório de código-fonte: \texttt{src/}, contendo a implementação em Python do protótipo de middleware de segurança e artefatos de apoio aos experimentos;
+    \item arquivos de infraestrutura: \texttt{docker-compose.yml} para orquestração dos serviços em contêiner e \texttt{setup.sh} para preparação inicial do ambiente em Linux;
+    \item scripts auxiliares em PowerShell para Windows: \texttt{EXECUTAR\_TESTES.ps1}, responsável por disparar o conjunto de testes do protótipo, e \texttt{TESTAR\_API.ps1}, usado para verificar se a API do middleware responde conforme o esperado;
+    \item \texttt{README.md} descrevendo arquitetura, organização do repositório e passos de execução.
+\end{itemize}
+
+Na etapa atual, a prova de conceito ainda se encontra em evolução incremental dentro de \texttt{src/}, mas o \textit{scaffolding} de reprodutibilidade (scripts de setup, \texttt{docker-compose}, instruções de execução e testes) já está consolidado para suportar os experimentos descritos nesta seção.
+
+\subsection{Arquitetura do Protótipo e Fluxo de Dados}
+A prova de conceito será implementada como uma aplicação \textit{middleware} em contêiner Docker, que recebe requisições de usuários internos, aplica camadas de controle e apenas então interage com a API externa do Gemini. O fluxo de dados é organizado em cinco camadas principais de segurança e conformidade que antecedem a resposta ao usuário.
+
+\begin{enumerate}[leftmargin=1.2cm]
+    \item \textbf{Sanitização de entrada}: NER/\textit{redaction} de PII, \textit{regex} e listas semânticas de bloqueio, normalização de formatos e de codificação para reduzir ambiguidades.
+    \item \textbf{LLM Firewall}: combinação de regras estáticas e detecção semântica de instruções adversariais, \textit{deny-list} de capacidades perigosas, \textit{rate-limiting} e limitação de tamanho de \textit{prompt}.
+    \item \textbf{RAG privado}: repositório controlado de documentos institucionais com metadados de confidencialidade e políticas de acesso, recuperação semântica via ChromaDB alimentando o contexto enviado ao LLM.
+    \item \textbf{RBAC adaptativo}: cálculo de \textit{risk score} por requisição (papel do usuário, horário, localização lógica, dispositivo, histórico de \textit{queries} e semântica da consulta); risco elevado aciona \textit{step-up authentication}, revisão humana ou bloqueio.
+    \item \textbf{Sanitização de saída e auditoria}: filtros de PII e de conteúdos proibidos em respostas, verificação de aderência a políticas, registro \textit{append-only} de eventos para trilhas de auditoria e geração de evidências de conformidade.
+    \item \textbf{Mapper de conformidade}: componente que associa cada controle técnico aos artigos e requisitos de normas (AI Act/OWASP/ISO/ENISA), produzindo artefatos exportáveis (relatórios, dashboards) para auditoria.
+\end{enumerate}
+
+O diagrama de arquitetura correspondente explicita estes componentes (contêiner do middleware, serviço de banco vetorial, integração com a API do Gemini e camadas de segurança) e será mantido em arquivo versionado no repositório (\texttt{docs/arquitetura.*}).
+
+\subsection{Dados, Datasets e Política de Privacidade}
+A parte prática exige dados que permitam testar tanto a utilidade do assistente quanto os mecanismos de segurança e privacidade, sem violar legislações de proteção de dados.
+
+\begin{itemize}[leftmargin=1.2cm]
+    \item \textbf{Corpus institucional neutro (RAG)}:
+    \begin{itemize}[nosep]
+        \item Documentos públicos ou internos de baixo risco (manuais, políticas, FAQs, regulamentos), após revisão para remoção de PII.
+        \item Indexação em ChromaDB com metadados de confidencialidade, domínio e versão.
+    \end{itemize}
+
+    \item \textbf{Dados sintéticos no domínio de saúde}:
+    \begin{itemize}[nosep]
+        \item Geração de prontuários fictícios e eventos clínicos com distribuição controlada de diagnósticos, papéis de acesso e contextos de consulta, alinhados ao estudo de \cite{yarram2024}.
+        \item Separação em conjuntos de treino (para calibração de detectores) e teste (para avaliação A/B e ablação).
+        \item Garantia de que nenhuma instância corresponde a indivíduo real, evitando riscos de \textit{re-identification}.
+    \end{itemize}
+
+    \item \textbf{Conjunto de ataques e \textit{prompts} adversariais}:
+    \begin{itemize}[nosep]
+        \item Coleção de \textit{prompts} de \textit{prompt injection}, \textit{indirect prompt injection}, \textit{jailbreak}, extração de dados, abuso de papel e \textit{denial-of-wallet}.
+        \item Organização por categoria de ameaça para permitir análises estratificadas de \textit{Attack Success Rate}.
+    \end{itemize}
+
+    \item \textbf{Telemetria e logs}:
+    \begin{itemize}[nosep]
+        \item Registro estruturado de requisições, decisões de controle (bloqueio, permitir, \textit{step-up}), latência, custo estimado e mapeamento de requisitos de conformidade acionados em cada fluxo.
+    \end{itemize}
+\end{itemize}
+
+\subsection{Ameaças e Cenários de Teste}
+Os cenários de teste serão construídos para cobrir um conjunto representativo de ameaças alinhadas às taxonomias recentes.
+
+\begin{itemize}[leftmargin=1.2cm]
+    \item \textbf{Ameaças}:
+    \begin{itemize}[nosep]
+        \item \textit{Prompt/indirect injection} e \textit{jailbreaks};
+        \item \textit{Insecure output handling} (execução de código ou comandos não filtrados);
+        \item \textit{Denial-of-wallet}/DoS por uso abusivo de recursos;
+        \item \textit{Model/knowledge stealing} por consultas sistemáticas;
+        \item Ataques de \textit{membership inference} em nível básico;
+        \item Abuso de papéis privilegiados e cenários de \textit{break-glass}.
+    \end{itemize}
+
+    \item \textbf{Desenho experimental} (Testes A/B e ablação):
+    \begin{enumerate}[nosep]
+        \item Baseline (sem controles de segurança ativos);
+        \item Baseline + firewall LLM;
+        \item Baseline + firewall LLM + RAG privado;
+        \item Baseline + firewall LLM + RAG privado + RBAC adaptativo;
+        \item \textbf{Pipeline completo} com todas as camadas, incluindo sanitização de saída e auditoria.
+    \end{enumerate}
+\end{itemize}
+
+\subsection{Métricas e Coleta}
+As métricas são estruturadas em três eixos: segurança e privacidade, desempenho e custos, conformidade regulatória.
+
+\begin{itemize}[leftmargin=1.2cm]
+    \item \textbf{Segurança e privacidade}:
+    \begin{itemize}[nosep]
+        \item \textit{Attack Success Rate} (ASR) de cada categoria de ataque;
+        \item Precisão, \textit{recall} e F1 dos detectores de anomalia, firewall LLM e sanitisadores;
+        \item Taxa de vazamento de PII ou informações sensíveis em respostas;
+        \item Eficácia de \textit{rate-limiting} e de quotas por usuário ou cliente.
+    \end{itemize}
+
+    \item \textbf{Desempenho e custos}:
+    \begin{itemize}[nosep]
+        \item Latência p95 e p99 de resposta para cenários benignos e adversariais;
+        \item Custo médio por requisição e por ataque bloqueado (tokens ou uso de API);
+        \item \textit{Throughput} sob diferentes níveis de carga.
+    \end{itemize}
+
+    \item \textbf{Conformidade}:
+    \begin{itemize}[nosep]
+        \item Percentual de requisitos cobertos (AI Act, OWASP, ISO, ENISA) por fluxo de requisição;
+        \item Existência e completude de evidências exportáveis (logs, relatórios, dashboards) para cada controle implementado.
+    \end{itemize}
+\end{itemize}
+
+\subsection{Critérios de Sucesso}
+Os critérios de sucesso do experimento incluem:
+
+\begin{itemize}[leftmargin=1.2cm]
+    \item Redução de pelo menos $X\%$ na taxa de sucesso de ataque, com perda de qualidade de resposta (medida por avaliação automática e ou humana) limitada a $Y\%$;
+    \item \textit{Overhead} de latência limitado a $Z\%$ em relação ao baseline sem controles;
+    \item Cobertura de compliance mínima de $W\%$ dos requisitos selecionados, com evidências auditáveis disponíveis;
+    \item Reprodutibilidade dos resultados a partir dos scripts de setup e dos \textit{datasets} disponibilizados.
+\end{itemize}
+
+\subsection{Reprodutibilidade e \textit{Open Science}}
+A organização do repositório favorece a reprodutibilidade por meio de uma estrutura já existente e de extensões planejadas:
+
+\begin{itemize}[leftmargin=1.2cm]
+    \item \texttt{/src}: código da PoC, incluindo API do middleware, camadas de segurança (sanitização, firewall, RAG, RBAC adaptativo, auditoria) e artefatos auxiliares para experimentos;
+    \item \texttt{/docs}: textos de apoio, versões em PDF e \LaTeX\ do artigo da disciplina, diagramas exportados e descrições adicionais da metodologia;
+    \item \texttt{/apresentacoes} e \texttt{/apresentacaoequipe}: materiais de apresentação das atividades e da equipe ao longo da disciplina;
+    \item \texttt{/instrucoes\_execucao}: guias passo a passo para configuração e testes, com foco em ambientes Windows e Linux;
+    \item \texttt{/outros\_artefatos}: materiais complementares, como relatórios, rascunhos e arquivos institucionais;
+    \item Arquivos de infraestrutura na raiz: \texttt{docker-compose.yml} (orquestração dos serviços) e \texttt{setup.sh} (automatização de passos de preparação do ambiente);
+    \item Scripts de teste na raiz: \texttt{EXECUTAR\_TESTES.ps1} e \texttt{TESTAR\_API.ps1}, que facilitam a execução de testes automatizados e a validação básica da API do middleware em ambientes Windows.
+\end{itemize}
+
+De forma estendida, e alinhado com a visão de evolução do projeto, podem ser adicionados diretórios como:
+
+\begin{itemize}[leftmargin=1.2cm]
+    \item \texttt{/infra}: arquivos \texttt{docker-compose.*}, \texttt{Dockerfile} e manifests de orquestração;
+    \item \texttt{/scripts}: scripts em Bash e Python para automação de setup e experimentos, incluindo:
+    \begin{itemize}[nosep]
+        \item \texttt{bootstrap\_dev.sh} e \texttt{bootstrap\_prod.sh}: criação de arquivos de configuração (\texttt{.env}), rede Docker e volumes;
+        \item \texttt{seed\_chroma.py}: indexação inicial do corpus institucional no ChromaDB;
+        \item \texttt{run\_experiments.py}: orquestração dos cenários A e B e de ablação, com coleta de métricas.
+    \end{itemize}
+    \item \texttt{/data}: amostras de \textit{datasets} sintéticos, corpus institucional sanitizado e conjuntos de \textit{prompts} de ataque, ou scripts para sua geração;
+    \item \texttt{/eval}: definição de métricas, configurações de experimentos e notebooks de análise;
+    \item \texttt{/paper}: versão em \LaTeX\ deste artigo (modelo SBC);
+    \item \texttt{/slides}: artefatos de apresentação, como Sprint Review do setup e resultados experimentais.
+\end{itemize}
+
+A publicação desses artefatos em repositório público, com remoção de segredos e chaves de API, permite replicação por terceiros e reutilização do \textit{framework} em outros contextos de aplicação de LLMs.
+
+\section{Resultados Parciais II}
+\label{sec:resultados}
+
+Esta seção apresenta os dados obtidos a partir de experimentos controlados de injeção de \textit{prompt} e validação de tráfego. O objetivo é avaliar a eficácia do mecanismo de defesa proposto (guardrail) sob duas dimensões principais: segurança, expressa por taxa de detecção e falsos positivos, e desempenho, medido por latência e vazão.
+
+Foram definidos quatro cenários de teste:
+
+\begin{itemize}[leftmargin=1.2cm]
+    \item \textbf{Prompt Seguro}: consultas legítimas, sem intenção maliciosa;
+    \item \textbf{Prompt Injection 1}: padrão de injeção direta com instruções contrárias às políticas do sistema;
+    \item \textbf{Prompt Injection 2}: variação semântica do ataque, com linguagem mais sutil;
+    \item \textbf{Prompt Longo Demais}: cenário de entrada excessivamente longa, testando limites de tamanho e \textit{rate limiting}.
+\end{itemize}
+
+\subsection{Eficácia da Detecção de Ameaças}
+
+Os testes de eficácia submeteram o sistema a esses quatro cenários, separando tráfego benigno, ataques de injeção de \textit{prompt} e ataques de negação de serviço por exaustão de contexto (\textit{context overflow}). A Tabela~\ref{tab:resultados-parciais} resume as taxas de detecção observadas, falsos positivos e resultado da ação em cada caso.
+
+\begin{table}[!htbp]
+\centering
+\caption{Resumo da eficácia de segurança por cenário de teste}
+\label{tab:resultados-parciais}
+\small
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{lccc}
+\toprule
+\textbf{Cenário} & \textbf{Taxa de Detecção (Recall)} & \textbf{Falsos Positivos} & \textbf{Resultado da Ação} \\
+\midrule
+Prompt Seguro        & N/A          & 1{,}0 (100\%) & Bloqueio indevido \\
+Prompt Injection 1   & 1{,}0 (100\%) & 0{,}0        & Bloqueio correto  \\
+Prompt Injection 2   & 1{,}0 (100\%) & 0{,}0        & Bloqueio correto  \\
+Prompt Longo Demais  & 1{,}0 (100\%) & 0{,}0        & Bloqueio correto  \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+O sistema demonstrou capacidade absoluta de defesa contra os vetores de ataque conhecidos, registrando taxa de detecção igual a 1{,}0 para todas as tentativas de \textit{Prompt Injection} e \textit{Context Overflow}, sem ocorrência de falsos negativos. Em contrapartida, observou-se um comportamento crítico no cenário de uso legítimo: o sistema classificou todo o tráfego benigno como malicioso, com taxa de falsos positivos igual a 1{,}0, o que indica limiar de sensibilidade excessivamente restritivo e regras de filtragem pouco específicas em termos contextuais.
+
+\subsection{Análise de Desempenho Computacional}
+
+Além da eficácia, avaliou-se o impacto da camada de segurança na latência das requisições e na vazão do sistema. Os dados revelam uma assimetria no tempo de processamento entre cenários benignos e maliciosos:
+
+\begin{itemize}[leftmargin=1.2cm]
+    \item nos cenários de ataque, a latência média variou entre aproximadamente 8{,}56\,ms e 8{,}97\,ms, com picos de vazão em torno de 111{,}46 a 116{,}76 requisições por segundo;
+    \item no cenário benigno, a latência média foi de 13{,}28\,ms, com vazão aproximada de 75{,}28 requisições por segundo.
+\end{itemize}
+
+Consequentemente, a vazão (throughput) foi significativamente maior durante os ataques (pico de 116.76 req/s) em comparação ao tráfego seguro (75.28 req/s).
+
+Na prática, o sistema respondeu mais rápido sob ataque do que em tráfego normal, pois, uma vez detectadas assinaturas de ameaça nas camadas superficiais da verificação, o fluxo de processamento é interrompido de forma antecipada, economizando ciclos de CPU. Já as requisições legítimas percorrem todas as camadas de validação, consumindo mais tempo de processamento para, ao final, ainda serem rejeitadas devido à má calibração dos limiares de decisão.
+
+\subsection{Discussão e Interpretação dos Dados}
+
+A análise combinada de segurança e desempenho sugere que o algoritmo de defesa opera sob um mecanismo de \textit{rejeição antecipada} (\textit{fail-fast}):
+
+\begin{enumerate}[leftmargin=1.2cm]
+    \item \textbf{Otimização sob ataque}: a baixa latência nos cenários de injeção de \textit{prompt} e de \textit{Prompt Longo Demais} indica que o sistema identifica indícios de ataque nas camadas iniciais, possivelmente por checagem de tamanho de entrada ou \textit{blacklist} de tokens, interrompendo o processamento o quanto antes e respondendo rapidamente com bloqueio.
+    \item \textbf{Custo da validação profunda em tráfego legítimo}: no caso de \textit{Prompts Seguros}, o \textit{input} atravessa todas as camadas de análise sem acionar bloqueios imediatos, o que gera latência aproximadamente 55\% maior. Ainda assim, devido a limiares excessivamente rígidos ou regras muito genéricas, o sistema rejeita o tráfego benigno na etapa final, sacrificando disponibilidade em prol de uma integridade exageradamente conservadora.
+\end{enumerate}
+
+Do ponto de vista de segurança, o comportamento observado é desejável sob ataque, pois não foram encontrados falsos negativos. No entanto, a incapacidade de distinguir nuances semânticas em interações legítimas torna a solução inviável para uso em produção no estado atual, já que o serviço permanece indisponível para todos os usuários legítimos.
+
+\subsection{Conclusão da Análise}
+
+Os resultados validam a arquitetura como altamente resiliente a vetores de ataque conhecidos, mas mostram que a configuração atual do guardrail é inadequada para cenários reais, devido à taxa de 100\% de falsos positivos em tráfego benigno. Trabalhos futuros devem priorizar:
+
+\begin{itemize}[leftmargin=1.2cm]
+    \item ajuste fino dos limiares e pesos das regras de decisão, reduzindo a taxa de rejeição de usuários legítimos;
+    \item adoção de sinais contextuais mais ricos e de classificadores semânticos complementares, mitigando a dependência exclusiva de \textit{keywords} ou heurísticas simples;
+    \item integração das métricas de conformidade regulatória e de privacidade aos experimentos automatizados, permitindo avaliar o equilíbrio entre segurança robusta, usabilidade e aderência a normas.
+\end{itemize}
+
+\section{Conclusão e Próximos Passos}
+Apresentamos a lacuna de pesquisa e um plano metodológico para avaliá-la de forma integrada, com métricas comparáveis e geração de evidências de conformidade. Nesta etapa, avançamos do nível puramente conceitual para o \textbf{planejamento detalhado do setup experimental}, especificando hardware, software, \textit{datasets}, arquitetura de middleware, contêineres e scripts de automação necessários para reproduzir o ambiente, bem como a organização concreta do repositório do projeto. Além disso, reportamos resultados experimentais iniciais que demonstram alta resiliência contra vetores de ataque conhecidos, ao custo de uma taxa de falsos positivos ainda inaceitável em cenários de uso legítimo.
+
+Como próximos passos: (i) materializar o \textit{docker-compose} e os scripts de configuração adicionais, validando o setup em ambiente controlado; (ii) completar a implementação dos módulos de segurança (firewall LLM, RBAC adaptativo, sanitisadores e auditoria) dentro da estrutura de \texttt{src/}; (iii) definir em detalhe os cenários de ataque e parâmetros de testes A e B e de ablação, incluindo ataques mais sofisticados; (iv) executar os experimentos em escala ampliada, analisando \textit{trade-offs} entre segurança, custo e latência, com especial atenção à redução de falsos positivos em tráfego benigno; e (v) disponibilizar publicamente os artefatos e relatórios, consolidando o \textit{framework} como referência reprodutível para avaliação de segurança, privacidade e conformidade em aplicações com LLMs.
+
+\begin{thebibliography}{99}
+
+\bibitem{rathod2024}
+Rathod, \textit{et al.} (2024).
+Privacy and Security Challenges in Large Language Models.
+
+\bibitem{yarram2024}
+Yarram, \textit{et al.} (2024).
+Privacy-Preserving Healthcare Data Security Using LLMs and Adaptive Access Control.
+
+\bibitem{bunzel2024}
+Bunzel (2024).
+Compliance Made Practical: Translating the EU AI Act into Implementable Security Actions.
+
+\end{thebibliography}
+
+\end{document}
