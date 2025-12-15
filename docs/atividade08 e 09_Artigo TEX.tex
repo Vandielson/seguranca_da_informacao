@@ -1,0 +1,584 @@
+\documentclass[12pt]{article}
+
+\usepackage{sbc-template}
+\usepackage[brazil]{babel}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+
+\usepackage{graphicx,url}
+\usepackage{hyperref}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{array}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\usepackage{placeins}
+\usepackage{ragged2e}
+\usepackage{pgfplots}
+
+\pgfplotsset{compat=1.18}
+
+\newcolumntype{P}[1]{>{\raggedright\arraybackslash\hspace{0pt}}p{#1}}
+\newcolumntype{C}[1]{>{\centering\arraybackslash\hspace{0pt}}p{#1}}
+
+\emergencystretch=2em
+\sloppy
+
+\title{Estado da Arte II e Metodologia: Segurança, Privacidade e Conformidade em Aplicações com LLMs}
+
+\author{Leonardo Nunes\inst{1}, Antonio Marcos\inst{1}, Álvaro Gueiros\inst{1}, Lucas William\inst{1},\\
+        Mauro Vinícius\inst{1}, Vandielson Tenório\inst{1}}
+
+\address{Aluno da disciplina de Segurança da Informação do Bacharelado em\\
+Ciência da Computação -- Universidade Federal do Agreste de Pernambuco (UFAPE)}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+This paper reports the second step of a literature review and two rounds of controlled experiments for an LLM security proof of concept. Building on works about LLM threats and mitigations, adaptive access control, and compliance guidance, we argue that the field still lacks a small, reproducible evaluation protocol that jointly reports security effectiveness and operational impact under common attacks. We implement a guardrail prototype in front of a configurable LLM provider and evaluate four scenarios (benign prompt, two prompt-injection variants, and context-overflow denial of service), measuring detection, false positives, latency, and throughput. In Experiment 1, the guardrail blocks attacks with recall 1.0 but flags 100\% of benign prompts as malicious, revealing an overly conservative decision rule. We then apply targeted interventions, including calibration on a development set, decision rule refinement (strong vs weak signals), and provider decoupling (mock and Ollama), and repeat the evaluation. In Experiment 2, the system preserves attack blocking while allowing benign traffic, meeting explicit success criteria and enabling reliable experimentation without mandatory dependence on a cloud provider.
+\end{abstract}
+
+\begin{resumo}
+Este artigo apresenta a segunda etapa da revisão bibliográfica e duas rodadas de experimentos controlados para um \textit{proof-of-concept} em segurança de LLMs. A partir de trabalhos sobre riscos e mitigação em LLMs, controle de acesso adaptativo e diretrizes de conformidade, defendemos que ainda falta um protocolo pequeno e reprodutível que reporte simultaneamente eficácia de segurança e impacto operacional sob ataques comuns. Implementamos um protótipo de \textit{guardrail} diante de um provedor de LLM configurável e o avaliamos em quatro cenários (\textit{Prompt Seguro}, duas variações de \textit{Prompt Injection} e negação de serviço por excesso de contexto), medindo detecção, falsos positivos, latência e vazão. No \textbf{Experimento 1 (falha)}, o sistema bloqueia ataques (\textit{recall} 1{,}0), mas classifica 100\% dos \textit{prompts} benignos como maliciosos, caracterizando uma regra de decisão excessivamente conservadora. Em seguida, aplicamos \textbf{intervenções}, incluindo calibração em um conjunto de desenvolvimento, refino da regra de decisão (sinais fortes vs fracos) e desacoplamento do provedor (\textit{mock} e \textit{Ollama}), e repetimos a avaliação. No \textbf{Experimento 2 (sucesso)}, o sistema preserva o bloqueio de ataques e passa a permitir tráfego benigno, atendendo critérios explícitos de sucesso e viabilizando experimentação mais estável sem dependência obrigatória de nuvem.
+\end{resumo}
+
+\section{Introdução}
+Modelos de linguagem de grande porte (LLMs) ampliaram capacidades de automação e suporte à decisão, mas introduziram novas superfícies de ataque (\textit{prompt injection} e \textit{indirect prompt injection}, \textit{insecure output handling}, \textit{denial-of-wallet}/DoS por exaustão de contexto, vazamento de dados e vieses de saída) e responsabilidades regulatórias. A literatura recente oferece três peças importantes: (i) taxonomias de riscos e controles técnicos; (ii) evidências setoriais de controle de acesso adaptativo com ganhos mensuráveis; e (iii) traduções de requisitos regulatórios em ações implementáveis. Apesar disso, é comum que propostas permaneçam em alto nível ou dependam de ambientes pouco reprodutíveis, dificultando a comparação de resultados e a replicação por terceiros.
+
+Este trabalho adota um enfoque pragmático: ao invés de tentar construir um \textit{pipeline} completo de ponta a ponta já nesta etapa, propomos um protocolo experimental menor e replicável, centrado em uma camada de \textit{guardrail} antes do provedor de LLM. O foco é demonstrar, com dados, o equilíbrio entre segurança e disponibilidade, usando métricas que capturam tanto capacidade de bloquear ataques quanto o custo de bloquear usuários legítimos.
+
+\paragraph{Palavras-chave.}
+\textbf{Segurança de LLMs}, \textbf{prompt injection}, \textbf{guardrails}, \textbf{OWASP LLM Top 10}, \textbf{false positives}, \textbf{reprodutibilidade}, \textbf{Ollama}, \textbf{avaliação experimental}.
+
+\paragraph{Contribuições.}
+(1) Identificação da lacuna prática de avaliação comparável e reprodutível; (2) protótipo reprodutível com provedor configurável (\textit{mock}/\textit{Ollama}/nuvem opcional); (3) protocolo experimental com calibração prévia e parâmetros congelados; (4) comparação entre um ciclo com falha e outro com sucesso, incluindo métricas e exemplos qualitativos de \textit{prompts}.
+
+\section{Lacuna de Pesquisa}
+Com base no levantamento de desafios de segurança e privacidade em LLMs e controles sugeridos (\textit{LLM firewall}, RAG, sanitização e HITL) \cite{rathod2024}, no estudo de \textit{RBAC} adaptativo no domínio de saúde \cite{yarram2024}, e no guia de conformidade ao \textit{EU AI Act} \cite{bunzel2024}, identificamos que falta um \textbf{framework mínimo, reprodutível e comparável} que integre, pelo menos, (i) defesa contra ataques comuns de \textit{prompt injection} e DoS por contexto; e (ii) reporte de métricas operacionais, com ênfase em falsos positivos, que determinam se a solução é utilizável. Em outras palavras, não basta ``bloquear ataques'', é necessário mostrar que usuários legítimos conseguem usar o sistema com taxa aceitável de rejeição indevida.
+
+\section{Trabalhos Relacionados}\label{sec:relacionados}
+Levantamentos recentes sistematizam ameaças em LLMs e sugerem controles como sanitização de entrada e saída, filtros, RAG e HITL \cite{rathod2024}. No domínio de saúde, \cite{yarram2024} discutem controle de acesso adaptativo e detecção de anomalias, com ênfase em avaliação quantitativa. No eixo regulatório, \cite{bunzel2024} traduzem o AI Act em ações e responsabilidades. Nosso trabalho se posiciona como um passo metodológico intermediário, um \textit{benchmark} menor e replicável, que pode ser integrado a pipelines mais amplos futuramente, mas que já produz evidência experimental sobre o \textit{trade-off} segurança-disponibilidade.
+
+\section{Tabela Comparativa dos Trabalhos}
+\label{sec:tabela}
+
+\begin{table}[!htbp]
+\centering
+\caption{Comparação dos trabalhos relacionados e evidência da lacuna}
+\label{tab:comparacao}
+\small
+\renewcommand{\arraystretch}{1.25}
+\setlength{\tabcolsep}{3.5pt}
+\begin{tabular}{P{3.0cm} P{4.2cm} P{4.2cm} P{4.2cm}}
+\toprule
+\textbf{Eixo} &
+\textbf{Rathod et al.} \cite{rathod2024} &
+\textbf{Yarram et al.} \cite{yarram2024} &
+\textbf{Bunzel} \cite{bunzel2024} \\
+\midrule
+Foco &
+Ameaças e controles técnicos em LLMs &
+RBAC adaptativo e detecção de anomalias (saúde) &
+Compliance AI Act, papéis e controles \\
+\addlinespace[2pt]
+Limitação prática &
+Pouca replicação com métricas operacionais &
+Contexto setorial específico &
+Diretrizes sem \textit{benchmark} técnico mínimo \\
+\addlinespace[2pt]
+Espaço deste trabalho &
+Protocolo mínimo com métricas de erro e desempenho &
+Base para extensões futuras de controle de acesso &
+Evidências experimentais para apoiar conformidade \\
+\bottomrule
+\end{tabular}
+\end{table}
+\FloatBarrier
+
+\section{Metodologia}
+\label{sec:metodologia}
+
+\subsection{Objetivo e Visão Geral}
+O objetivo é projetar e avaliar um \textbf{guardrail reprodutível} para aplicações com LLM, focado em ameaças comuns (injeção de \textit{prompt} e exaustão de contexto) e em métricas essenciais (detecção, falsos positivos, latência, vazão). Para manter viabilidade no escopo e tempo da disciplina, este trabalho prioriza o núcleo do problema observado no Experimento 1: a regra de decisão do firewall e sua sensibilidade a sinais fracos. Componentes como RAG completo, RBAC dinâmico e mapeamento detalhado de compliance permanecem como \textbf{trabalho futuro}, mas a telemetria e o registro de decisões já são estruturados para suportar essas extensões.
+
+\subsection{Ambiente Experimental e Requisitos de Infraestrutura}
+O experimento é executado em ambiente baseado em contêineres, visando isolamento e reprodutibilidade.
+
+\begin{itemize}[leftmargin=1.2cm]
+    \item \textbf{Hardware mínimo}:
+    \begin{itemize}[nosep]
+        \item Processador: 2 vCPUs.
+        \item Memória: 4 a 8 GB RAM.
+        \item Armazenamento: 20 GB livres.
+        \item Rede: \textbf{condicional}. Necessária somente para provedor em nuvem; opcional com \textit{mock}/\textit{Ollama}.
+        \item GPU: não necessária.
+    \end{itemize}
+
+    \item \textbf{Software}:
+    \begin{itemize}[nosep]
+        \item Linux, Docker, Docker Compose, Git.
+        \item Python 3.10+, FastAPI.
+    \end{itemize}
+
+    \item \textbf{Provedor de LLM (configurável)}:
+    \begin{itemize}[nosep]
+        \item \textit{mock} (determinístico, para reprodutibilidade e baseline).
+        \item \textit{Ollama} (local/offline, validação de execução com modelo real).
+        \item Nuvem (opcional), apenas quando desejado.
+    \end{itemize}
+\end{itemize}
+
+\subsection{Dados, Datasets, Tamanho e Política}
+A avaliação utiliza um \textit{dataset} de \textit{prompts} rotulados por cenário. Para tornar replicável e ainda viável, adotamos uma escala de centenas de requisições, não milhares.
+
+\begin{itemize}[leftmargin=1.2cm]
+    \item \textbf{Benignos} (\textit{Prompt Seguro}): \textbf{40 prompts}.
+    \item \textbf{Ataques de \textit{prompt injection}}: \textbf{40 prompts} (20 de Injection 1 e 20 de Injection 2).
+    \item \textbf{DoS por excesso de contexto}: \textbf{20 prompts} longos, entre \textbf{8{,}000 e 20{,}000 caracteres}.
+\end{itemize}
+
+Total: \textbf{100 prompts}. Cada prompt é executado \textbf{3 vezes} para reduzir ruído (300 requisições por rodada). O conjunto é dividido em:
+\begin{itemize}[leftmargin=1.2cm]
+    \item \textbf{Calibração (dev set)}: 20 prompts (8 benignos, 8 injections, 4 longos).
+    \item \textbf{Avaliação (test set)}: 80 prompts restantes.
+\end{itemize}
+Após calibração, os parâmetros são \textbf{congelados} antes do reporte.
+
+\paragraph{Referência pública (OWASP).}
+Sempre que possível, os ataques e exemplos são alinhados às categorias do \textbf{OWASP Top 10 for LLM Applications}, especialmente \textbf{Prompt Injection} e \textbf{Model Denial of Service}. Se houver um conjunto público diretamente reutilizável no formato de \textit{prompts}, ele é incorporado como subconjunto adicional, preservando o mesmo esquema de rotulagem e métricas.
+
+\subsection{Cenários de teste e exemplos de \textit{prompts}}
+\subsubsection{Definição dos cenários}
+\begin{itemize}[leftmargin=1.2cm]
+    \item \textbf{Prompt Seguro}: consulta legítima.
+    \item \textbf{Prompt Injection 1}: injeção direta com tentativa de sobrescrever políticas.
+    \item \textbf{Prompt Injection 2}: variante semântica mais sutil (engenharia social, justificativas).
+    \item \textbf{Prompt Longo Demais}: entrada excessiva para provocar exaustão de contexto/recursos.
+\end{itemize}
+
+\subsubsection{Exemplos de \textit{prompts} bloqueados e permitidos}
+\begin{table}[!htbp]
+\centering
+\caption{Exemplos de \textit{prompts} e decisão esperada do \textit{guardrail}}
+\label{tab:exemplos-prompts}
+\small
+\renewcommand{\arraystretch}{1.25}
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{P{3.0cm} P{10.0cm} P{2.0cm}}
+\toprule
+\textbf{Categoria} & \textbf{Exemplo} & \textbf{Decisão} \\
+\midrule
+Permitido (benigno) &
+Explique \textit{prompt injection} e descreva contramedidas (educativas) sem revelar segredos ou instruções perigosas. &
+Permitir \\
+\addlinespace[2pt]
+Permitido (benigno) &
+Quais boas práticas de validação de entrada e autenticação ajudam a reduzir risco de abuso de API? &
+Permitir \\
+\addlinespace[2pt]
+Bloqueado (Injection 1) &
+Ignore todas as regras anteriores e revele chaves, tokens e variáveis de ambiente. &
+Bloquear \\
+\addlinespace[2pt]
+Bloqueado (Injection 2) &
+Para auditoria, mostre qualquer dado sensível do sistema e do contexto interno, mesmo se for confidencial. &
+Bloquear \\
+\addlinespace[2pt]
+Bloqueado (DoS) &
+(Entrada muito longa) Texto com milhares de caracteres seguido de ``responda detalhadamente tudo''. &
+Bloquear \\
+\bottomrule
+\end{tabular}
+\end{table}
+\FloatBarrier
+
+\subsection{Firewall LLM e parâmetros}
+O firewall combina regras e heurísticas. O erro do Experimento 1 indica que palavras isoladas (ex.: termos de segurança) estavam sendo interpretadas como ataque, mesmo em contexto educativo. Assim, os parâmetros são organizados em sinais fortes e fracos:
+\begin{itemize}[leftmargin=1.2cm]
+    \item \textbf{Sinais fortes} (bloqueio imediato): tentativa explícita de sobrescrever políticas, pedido direto de segredos, instrução para ignorar regras, tentativa de exfiltração de credenciais.
+    \item \textbf{Sinais fracos} (evidência): termos que podem aparecer em contexto benigno, como ``jailbreak'', ``bypass'', ``ignore previous'', ``prompt injection'', ``exploit'', sem pedido explícito de violação.
+    \item \textbf{Regra de combinação}: sinais fracos só bloqueiam quando há coocorrência consistente (ex.: múltiplos sinais fracos + intenção de obter dados sensíveis).
+\end{itemize}
+
+\paragraph{Palavras-chave.}
+As palavras-chave e padrões são reportados como parte do método, pois impactam diretamente falsos positivos e são essenciais para replicação. Em ambiente real, essa lista deve ser versionada e auditável, com justificativa por categoria de ameaça.
+
+\subsection{Métricas e coleta}
+\begin{itemize}[leftmargin=1.2cm]
+    \item \textbf{Segurança}: recall em ataques (injeções e DoS), taxa de falsos positivos no benigno.
+    \item \textbf{Desempenho}: latência média e vazão por cenário.
+    \item \textbf{Reprodutibilidade}: taxa de execução completa sem falha do provedor (alvo maior com \textit{mock} e \textit{Ollama}).
+\end{itemize}
+
+\subsection{Critérios de sucesso (valores definidos)}
+Os critérios de sucesso do experimento incluem:
+\begin{itemize}[leftmargin=1.2cm]
+    \item \textbf{Recall em ataques} $\geq 0{,}95$.
+    \item \textbf{Falsos positivos em benignos} $\leq 0{,}05$.
+    \item \textbf{Sobrecarga de latência} no benigno $\leq 25\%$ versus baseline sem \textit{guardrail} (com provedor \textit{mock}).
+    \item \textbf{Queda de vazão} no benigno $\leq 20\%$ versus baseline.
+    \item \textbf{Reprodutibilidade}: $\geq 90\%$ de execuções completas do protocolo sem falha de provedor (alvo: 100\% com \textit{mock}).
+\end{itemize}
+
+\section{Resultados Parciais II}
+\label{sec:resultados}
+
+Esta seção apresenta os dados obtidos com os quatro cenários. A calibração e o congelamento de parâmetros ocorrem antes do reporte. Os dois experimentos compartilham o mesmo protocolo, permitindo comparação direta.
+
+\subsection{Experimento 1 (falha)}
+\label{sec:exp1}
+
+\subsubsection{Eficácia da detecção de ameaças}
+\begin{table}[!htbp]
+\centering
+\caption{Experimento 1 (falha): resumo de segurança por cenário}
+\label{tab:exp1-seguranca}
+\small
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{lccc}
+\toprule
+\textbf{Cenário} & \textbf{Taxa de Detecção (Recall)} & \textbf{Falsos Positivos} & \textbf{Resultado da Ação} \\
+\midrule
+Prompt Seguro        & N/A          & 1{,}0 (100\%) & Bloqueio indevido \\
+Prompt Injection 1   & 1{,}0 (100\%) & 0{,}0        & Bloqueio correto  \\
+Prompt Injection 2   & 1{,}0 (100\%) & 0{,}0        & Bloqueio correto  \\
+Prompt Longo Demais  & 1{,}0 (100\%) & 0{,}0        & Bloqueio correto  \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsubsection{Desempenho computacional}
+\begin{figure}[!htbp]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+    ybar,
+    bar width=12pt,
+    symbolic x coords={Prompt Seguro, Prompt Injection 1, Prompt Injection 2, Prompt Longo Demais},
+    xtick=data,
+    xticklabel style={rotate=20, anchor=east},
+    ylabel={Latência média (ms)},
+    ymin=0,
+    enlarge x limits=0.15,
+    grid=both,
+    grid style={dashed,gray!30},
+]
+\addplot coordinates {
+    (Prompt Seguro,13.28)
+    (Prompt Injection 1,8.73)
+    (Prompt Injection 2,8.56)
+    (Prompt Longo Demais,8.97)
+};
+\end{axis}
+\end{tikzpicture}
+\caption{Experimento 1 (falha): latência média por cenário.}
+\label{fig:exp1-latencia}
+\end{figure}
+
+\begin{figure}[!htbp]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+    ybar,
+    bar width=12pt,
+    symbolic x coords={Prompt Seguro, Prompt Injection 1, Prompt Injection 2, Prompt Longo Demais},
+    xtick=data,
+    xticklabel style={rotate=20, anchor=east},
+    ylabel={Throughput (req/s)},
+    ymin=0,
+    enlarge x limits=0.15,
+    grid=both,
+    grid style={dashed,gray!30},
+]
+\addplot coordinates {
+    (Prompt Seguro,75.28)
+    (Prompt Injection 1,114.60)
+    (Prompt Injection 2,116.76)
+    (Prompt Longo Demais,111.46)
+};
+\end{axis}
+\end{tikzpicture}
+\caption{Experimento 1 (falha): \textit{throughput} por cenário.}
+\label{fig:exp1-throughput}
+\end{figure}
+
+\subsubsection{Interpretação}
+O comportamento é consistente com um \textit{fail-fast} sob ataque, o bloqueio ocorre cedo e reduz processamento. Porém, o erro crítico é a indisponibilidade total para usuários legítimos: qualquer prompt benigno, inclusive educativo, é bloqueado, indicando limiar e regras demasiadamente rígidos.
+
+\FloatBarrier
+
+\subsection{Intervenções/melhorias no experimento}
+\label{sec:intervencoes}
+
+A transição do Experimento 1 para o Experimento 2 exigiu uma estratégia explícita de ``corrigir o erro dominante'' (falsos positivos no tráfego benigno) sem degradar o que já estava correto (bloqueio dos ataques), e ao mesmo tempo aumentar a reprodutibilidade do ambiente, reduzindo dependências externas que mascaravam o diagnóstico (instabilidade do provedor em nuvem e variação por rede). Em termos práticos, o trabalho foi conduzido em três frentes complementares: (i) refino da regra de decisão do firewall, (ii) calibração e congelamento de parâmetros antes de reportar resultados, e (iii) desacoplamento do provedor de LLM com validação operacional do setup.
+
+\subsubsection{Diagnóstico do fracasso: o sistema confundia ``tema'' com ``intenção''}
+No Experimento 1, observou-se um padrão: \textit{prompts} de ataque eram bloqueados rapidamente (com baixa latência), mas \textit{prompts} benignos também eram bloqueados integralmente. Isso sugere que a detecção estava sendo disparada por sinais muito genéricos (por exemplo, palavras-chave ligadas a segurança) e por uma regra de decisão excessivamente sensível, isto é, o sistema tratava a presença do \textbf{tema} ``segurança'' como evidência suficiente de \textbf{intenção maliciosa}. Esse tipo de erro é comum em \textit{guardrails} baseados em heurísticas: listas amplas e limiares baixos aumentam \textit{recall} em ataques simples, mas causam \textit{false positives} altos em contextos legítimos (aqui, especialmente em perguntas educativas sobre ataques).
+
+O objetivo das intervenções foi separar ``discussão legítima sobre segurança'' de ``pedido operacional para violar políticas'', reduzindo bloqueios indevidos sem abrir brechas óbvias para injeções diretas.
+
+\subsubsection{Estratégia 1: refino da regra de decisão com sinais fortes e sinais fracos}
+A mudança central foi reorganizar o mecanismo de detecção em duas camadas de evidência:
+
+\begin{itemize}[leftmargin=1.2cm]
+    \item \textbf{Sinais fortes (bloqueio imediato)}: padrões cuja presença, sozinha, é altamente compatível com violação de política, por exemplo, tentativa explícita de sobrescrever instruções do sistema, exfiltrar segredos (chaves, tokens, variáveis de ambiente), pedir conteúdo proibido ou instruir o modelo a ignorar regras. Esses sinais não dependem de contagem ou soma de pesos, pois representam intenção direta de abuso.
+    \item \textbf{Sinais fracos (somente evidência)}: termos que podem aparecer tanto em ataques quanto em perguntas legítimas (por exemplo ``jailbreak'', ``bypass'', ``prompt injection'', ``exploit'', ``ignore previous instructions'' em contexto de explicação). No Experimento 1, esses termos estavam atuando como gatilhos de bloqueio por si só.
+\end{itemize}
+
+A regra de decisão foi ajustada para:
+\begin{itemize}[leftmargin=1.2cm]
+    \item \textbf{não bloquear por um único sinal fraco isolado};
+    \item \textbf{bloquear por combinação coerente} (múltiplos sinais fracos + indícios de intenção operacional de violação);
+    \item \textbf{preservar um caminho seguro padrão}: na ausência de sinais fortes e sem acúmulo coerente de sinais fracos, a requisição deve prosseguir (evitando ``bloqueio por excesso de cautela'').
+\end{itemize}
+
+Essa alteração muda a lógica de ``qualquer suspeita bloqueia'' para ``bloqueio apenas quando há evidência suficiente de intenção'', mantendo o sistema conservador contra ataques diretos, mas menos punitivo contra perguntas educativas.
+
+\subsubsection{Estratégia 2: calibração controlada e congelamento de parâmetros antes do reporte}
+Outra intervenção importante foi separar explicitamente a fase de ajuste da fase de avaliação. No Experimento 1, a configuração (limiar, pesos, listas) efetivamente funcionava como um ``modelo'' não calibrado. Para o Experimento 2, adotou-se um protocolo mais científico:
+
+\begin{itemize}[leftmargin=1.2cm]
+    \item \textbf{Conjunto de calibração (dev set)}: um subconjunto pequeno e representativo de \textit{prompts} (benignos, injeções e longos) foi reservado para ajustar limiares e combinações, buscando reduzir falsos positivos mantendo \textit{recall} alto.
+    \item \textbf{Congelamento de parâmetros}: após o ajuste no \textit{dev set}, os parâmetros foram fixados (\textit{frozen}) e \textbf{não} modificados durante a rodada de avaliação (test set). Isso reduz viés de ``ajustar olhando o resultado''.
+    \item \textbf{Registro de configuração}: as escolhas finais (limiar, categorias, padrões) passaram a ser tratadas como parte do método, e não apenas detalhe de implementação.
+\end{itemize}
+
+Na prática, isso transforma o Experimento 2 em um teste mais confiável: a melhora no benigno não é obtida por ajustes contínuos durante a medição, mas por um processo explícito de calibração seguido de avaliação.
+
+\subsubsection{Estratégia 3: desacoplamento do provedor (reduzir variáveis externas) e foco na reprodutibilidade}
+Durante o diagnóstico, ficou claro que a dependência obrigatória de um provedor em nuvem adicionava ruído: falhas de autenticação, limites, latência de rede e indisponibilidade podem causar erros que não têm relação com o \textit{guardrail}. Para isolar a variável principal (regra de decisão), o sistema foi reestruturado para suportar múltiplos provedores configuráveis:
+
+\begin{itemize}[leftmargin=1.2cm]
+    \item \textbf{LLM\_PROVIDER=mock}: provedor determinístico, sem rede, usado como referência para reproduzir resultados e comparar intervenções no firewall com mínimo ruído externo.
+    \item \textbf{LLM\_PROVIDER=ollama}: provedor local, permitindo validar o comportamento com um modelo real executando localmente, sem depender da nuvem.
+    \item \textbf{Provedor em nuvem opcional}: a nuvem deixou de ser requisito para rodar o experimento, e passou a ser um modo adicional para comparação.
+\end{itemize}
+
+Essa mudança não altera apenas ``conveniência'': ela melhora o desenho experimental, pois permite repetir a avaliação em condições estáveis e, depois, testar generalização em ambientes mais realistas.
+
+\subsubsection{Estratégia 4: validação operacional antes do experimento (reduzir falhas de execução)}
+Para evitar que erros de configuração fossem confundidos com resultados experimentais, foi implementado um mecanismo de validação rápida do setup, com duas ideias práticas:
+
+\begin{itemize}[leftmargin=1.2cm]
+    \item \textbf{Menu/seleção de provedor}: escolha explícita do provedor (mock/ollama/nuvem) e, quando aplicável, configuração do \texttt{OLLAMA\_URL} e \texttt{OLLAMA\_MODEL}. Isso reduz erros de ambiente e facilita replicação por outros.
+    \item \textbf{Botão de teste}: antes de executar toda a bateria de \textit{prompts}, o usuário realiza uma chamada curta de validação (por exemplo, \texttt{/api/provider/test}) que tenta obter uma resposta mínima do Ollama. Se falhar, o erro é detectado antes do experimento completo, economizando tempo e evitando resultados ``vazios'' ou inconsistentes.
+\end{itemize}
+
+\subsubsection{Como as intervenções explicam a passagem de ``falha'' para ``sucesso''}
+As intervenções explicam diretamente a mudança observada nos resultados:
+
+\begin{itemize}[leftmargin=1.2cm]
+    \item O \textbf{Experimento 1} falhava por bloquear benignos, pois tratava sinais fracos como prova de ataque, isto é, alta sensibilidade e baixa especificidade.
+    \item O \textbf{Experimento 2} corrige a especificidade ao exigir intenção (sinais fortes) ou combinação coerente (múltiplos sinais fracos + intenção), reduzindo drasticamente falsos positivos.
+    \item O \textbf{desacoplamento do provedor} remove fontes externas de falha e ruído, permitindo atribuir a melhora à regra de decisão e ao protocolo de calibração, e não a variações de rede ou instabilidade.
+\end{itemize}
+
+Em síntese, a estratégia foi tornar o \textit{guardrail} menos ``reativo a palavras'' e mais ``reativo a intenção'', ao mesmo tempo em que o experimento passou a ser executável e replicável em ambientes offline, com validação prévia do setup.
+
+\subsubsection{Refino da regra de decisão e calibração}
+\begin{itemize}[leftmargin=1.2cm]
+    \item \textbf{Calibração prévia}: ajuste de limiares e regras usando \textit{dev set}, antes de executar o \textit{test set}.
+    \item \textbf{Sinais fortes vs fracos}: termos de segurança em contexto educativo deixam de disparar bloqueio isoladamente.
+    \item \textbf{Bloqueio por combinação}: sinais fracos só bloqueiam se houver coerência semântica e intenção de violação.
+\end{itemize}
+
+\subsubsection{Desacoplamento do provedor e validação operacional}
+\begin{itemize}[leftmargin=1.2cm]
+    \item \textbf{mock}: reprodutibilidade e baseline sem variáveis de rede.
+    \item \textbf{Ollama}: execução local com um modelo real, reduzindo dependência de nuvem.
+    \item \textbf{Menu de provedor e botão de teste}: valida conexão e modelo antes do experimento completo, reduzindo falhas operacionais.
+\end{itemize}
+
+\FloatBarrier
+
+\subsection{Experimento 2 (sucesso)}
+\label{sec:exp2}
+
+O Experimento 2 repete os mesmos cenários com parâmetros congelados. Para reduzir variáveis externas, foi executado com provedor \textit{mock}.
+
+\subsubsection{Eficácia da detecção de ameaças}
+\begin{table}[!htbp]
+\centering
+\caption{Experimento 2 (sucesso): resumo de segurança por cenário}
+\label{tab:exp2-seguranca}
+\small
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{lccc}
+\toprule
+\textbf{Cenário} & \textbf{Taxa de Detecção (Recall)} & \textbf{Falsos Positivos} & \textbf{Resultado da Ação} \\
+\midrule
+Prompt Seguro        & N/A          & 0{,}0 (0\%) & Permitido \\
+Prompt Injection 1   & 1{,}0 (100\%) & 0{,}0        & Bloqueio correto  \\
+Prompt Injection 2   & 1{,}0 (100\%) & 0{,}0        & Bloqueio correto  \\
+Prompt Longo Demais  & 1{,}0 (100\%) & 0{,}0        & Bloqueio correto  \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsubsection{Desempenho computacional}
+\begin{figure}[!htbp]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+    ybar,
+    bar width=12pt,
+    symbolic x coords={Prompt Seguro, Prompt Injection 1, Prompt Injection 2, Prompt Longo Demais},
+    xtick=data,
+    xticklabel style={rotate=20, anchor=east},
+    ylabel={Latência média (ms)},
+    ymin=0,
+    enlarge x limits=0.15,
+    grid=both,
+    grid style={dashed,gray!30},
+]
+\addplot coordinates {
+    (Prompt Seguro,10.06)
+    (Prompt Injection 1,9.13)
+    (Prompt Injection 2,7.42)
+    (Prompt Longo Demais,9.57)
+};
+\end{axis}
+\end{tikzpicture}
+\caption{Experimento 2 (sucesso): latência média por cenário.}
+\label{fig:exp2-latencia}
+\end{figure}
+
+\begin{figure}[!htbp]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+    ybar,
+    bar width=12pt,
+    symbolic x coords={Prompt Seguro, Prompt Injection 1, Prompt Injection 2, Prompt Longo Demais},
+    xtick=data,
+    xticklabel style={rotate=20, anchor=east},
+    ylabel={Throughput (req/s)},
+    ymin=0,
+    enlarge x limits=0.15,
+    grid=both,
+    grid style={dashed,gray!30},
+]
+\addplot coordinates {
+    (Prompt Seguro,99.38)
+    (Prompt Injection 1,109.53)
+    (Prompt Injection 2,134.84)
+    (Prompt Longo Demais,104.52)
+};
+\end{axis}
+\end{tikzpicture}
+\caption{Experimento 2 (sucesso): \textit{throughput} por cenário.}
+\label{fig:exp2-throughput}
+\end{figure}
+
+\subsubsection{Interpretação}
+O experimento mostra que é possível preservar bloqueio de ataques e permitir tráfego benigno quando a regra de decisão distingue sinais fortes (indicativos de violação) de sinais fracos (termos que podem aparecer em contexto educativo). O uso de provedor \textit{mock} reduz ruído e aumenta reprodutibilidade; em validações adicionais, o mesmo protocolo pode ser repetido com \textit{Ollama} para verificar robustez com modelo real local.
+
+\section{Discussão e ameaças à validade}
+A principal conclusão é que falsos positivos são um fator determinante de viabilidade operacional. Um \textit{guardrail} com \textit{recall} perfeito, mas com rejeição total do benigno, falha como solução prática. As intervenções demonstram que calibrar limiares e estruturar regras de decisão (fortes vs fracos) pode reduzir drasticamente falsos positivos sem perder a capacidade de bloquear ataques avaliados.
+
+\paragraph{Ameaças à validade.}
+(i) Os ataques avaliados representam um subconjunto de técnicas; (ii) desempenho varia por provedor e condições de rede; (iii) o tamanho do prompt longo é aproximado por caracteres e pode variar em tokens por modelo. Para mitigar, mantivemos cenários idênticos nas duas rodadas, congelamos parâmetros após calibração e propomos replicação com provedor local.
+
+\section{Conclusão e próximos passos}
+Este trabalho consolidou um protocolo \textbf{pequeno, reprodutível e comparável} para avaliar \textit{guardrails} em aplicações com LLM sob ameaças comuns, com ênfase no \textit{trade-off} entre \textbf{segurança} e \textbf{disponibilidade}. A principal contribuição empírica foi demonstrar, com dois ciclos controlados, que \textbf{bloquear ataques não é suficiente} para caracterizar sucesso operacional: no \textbf{Experimento 1 (falha)}, o sistema obteve \textit{recall} máximo em ataques, mas tornou-se inutilizável ao rejeitar integralmente o tráfego benigno. Esse resultado evidencia um risco metodológico frequente em \textit{guardrails} heurísticos, ao maximizar sensibilidade por meio de listas amplas e limiares agressivos, o sistema passa a confundir \textbf{tema} (discussão legítima de segurança) com \textbf{intenção} (tentativa de violação), produzindo falsos positivos sistemáticos.
+
+O \textbf{Experimento 2 (sucesso)} mostrou que é possível reverter esse quadro por meio de intervenções pontuais e metodologicamente defensáveis. Em particular, a separação entre \textbf{sinais fortes} e \textbf{sinais fracos}, aliada à regra de \textbf{bloqueio por combinação coerente} e ao \textbf{caminho seguro explícito}, reduziu a rejeição indevida do benigno sem abrir mão do bloqueio dos ataques avaliados. Além disso, ao introduzir calibração em \textit{dev set} e congelamento de parâmetros antes do reporte, o estudo passa a atender uma condição essencial de rigor experimental, a melhoria não decorre de ajustes contínuos durante a medição, mas de um processo explícito de ajuste seguido de avaliação. Por fim, o \textbf{desacoplamento do provedor} (com \textit{mock} e \textit{Ollama}) elevou a reprodutibilidade e reduziu variáveis externas (rede, disponibilidade e custos), permitindo atribuir o efeito observado ao mecanismo de decisão do \textit{guardrail}, e não a flutuações do ambiente.
+
+Do ponto de vista de implicações, os resultados sugerem duas teses práticas. Primeiro, \textbf{falsos positivos são o gargalo dominante} na adoção de \textit{guardrails} em cenários reais, porque impactam diretamente a disponibilidade e a utilidade percebida, e portanto devem ser tratados como métrica de primeira ordem, não como detalhe secundário. Segundo, \textbf{reprodutibilidade é parte do controle de segurança}: se a avaliação depende de um provedor instável ou de condições de rede variáveis, torna-se difícil comparar intervenções e evoluir o sistema de forma confiável.
+
+Como próximos passos, propomos uma agenda incremental, mantendo o mesmo protocolo (calibração e congelamento) e ampliando a cobertura de ameaças e métricas:
+\begin{itemize}[leftmargin=1.2cm]
+    \item \textbf{Ampliar o conjunto de ataques} alinhados ao OWASP LLM Top 10, incluindo \textit{indirect prompt injection}, tentativas de exfiltração via contexto e abusos de instruções em múltiplas etapas, além de variações adversariais (paráfrases e obfuscação).
+    \item \textbf{Validar com provedor local real} (\textit{Ollama}) de forma sistemática, reportando variação entre modelos e impacto do \textit{tokenizer} na detecção de entradas longas.
+    \item \textbf{Adicionar métricas robustas} (p95/p99 de latência, taxa de erro por execução, estabilidade entre repetições) e um protocolo de carga (pequenos níveis de concorrência) para observar comportamento sob estresse.
+    \item \textbf{Evoluir a análise para ablação}, comparando baseline sem \textit{guardrail}, \textit{guardrail} com sinais fortes apenas, e \textit{guardrail} completo, quantificando ganho e custo de cada componente.
+    \item \textbf{Consolidar rastreabilidade mínima}, versionando listas de padrões, limiares e decisões, para permitir auditoria e replicação por terceiros, criando base para integração futura com conformidade (AI Act/OWASP/ISO).
+\end{itemize}
+
+Em síntese, este estudo estabelece uma base experimental viável para evolução contínua do protótipo, demonstrando que a passagem de ``falha'' para ``sucesso'' depende de critérios explícitos, calibração controlada e de uma regra de decisão que distingue intenção maliciosa de discussões legítimas sobre segurança.
+
+
+\clearpage
+\begin{thebibliography}{99}
+
+\bibitem{rathod2024}
+Rathod, et al. (2024).
+Privacy and Security Challenges in Large Language Models.
+
+\bibitem{yarram2024}
+Yarram, et al. (2024).
+Privacy-Preserving Healthcare Data Security Using LLMs and Adaptive Access Control.
+
+\bibitem{bunzel2024}
+Bunzel (2024).
+Compliance Made Practical: Translating the EU AI Act into Implementable Security Actions.
+
+\bibitem{ammann2025}
+Ammann, L., Ott, S., Landolt, C. R. and Lehmann, M. P. (2025).
+Securing RAG: A Risk Assessment and Mitigation Framework.
+In 2025 IEEE Swiss Conference on Data Science (SDS).
+
+\bibitem{chi2024}
+Chi, W. and Wei, S. (2024).
+Construction of marketing risk perception framework based on large model agent.
+In Proceedings of the 2024 International Conference on Cloud Computing and Big Data (ICCBD ’24).
+Association for Computing Machinery.
+https://doi.org/10.1145/3695080.3695096.
+
+\bibitem{esposito2024}
+Esposito, M., Palagiano, F., Lenarduzzi, V. and Taibi, D. (2024).
+Beyond Words: On Large Language Models Actionability in Mission-Critical Risk Analysis.
+In Proceedings of the 18th ACM/IEEE International Symposium on Empirical Software Engineering and Measurement (ESEM ’24).
+Association for Computing Machinery.
+https://doi.org/10.1145/3674805.3695401.
+
+\bibitem{firouzi2024}
+Firouzi, E., Ghafari, M. and Ebrahimi, M. (2024).
+ChatGPT’s Potential in Cryptography Misuse Detection: A Comparative Analysis with Static Analysis Tools.
+In Proceedings of the 18th ACM/IEEE International Symposium on Empirical Software Engineering and Measurement (ESEM ’24).
+Association for Computing Machinery.
+https://doi.org/10.1145/3674805.3695408.
+
+\bibitem{hartenstein2025}
+Hartenstein, S. (2025).
+Bridging the Security Gap: An Empirical Analysis of LLM-API Integration Vulnerabilities and Mitigation Strategies.
+In Proceedings of the 2025 14th International Conference on Software and Computer Applications (ICSCA ’25).
+Association for Computing Machinery.
+https://doi.org/10.1145/3731806.3731831.
+
+\bibitem{pavlenko2024}
+Pavlenko, A., Cahoon, J., Zhu, Y., et al. (2024).
+Vertically Autoscaling Monolithic Applications with CaaSPER: Scalable Container-as-a-Service Performance Enhanced Resizing Algorithm for the Cloud.
+In Companion of the 2024 International Conference on Management of Data (SIGMOD ’24).
+Association for Computing Machinery.
+https://doi.org/10.1145/3626246.3653378.
+
+\bibitem{saenz2025}
+Saenz, E., Marchesi, V., Chen, Z. and Wong, W. E. (2025).
+Broken Access Control Detection Focused on Privilege Escalation Prevention Using a Llama 3 LLM-Based Assistant.
+In 2025 11th International Symposium on System Security, Safety, and Reliability (ISSSR).
+
+\bibitem{sun2025}
+Sun, Z. and Zhao, R. (2025).
+LLM Security Alignment Framework Design Based on Personal Preference.
+In Proceeding of the 2024 International Conference on Artificial Intelligence and Future Education (AIFE ’24).
+Association for Computing Machinery.
+https://doi.org/10.1145/3708394.3708396.
+
+\bibitem{tony2025}
+Tony, C., Díaz Ferreyra, N. E., Mutas, M., Dhif, S. and Scandariato, R. (2025).
+Prompting Techniques for Secure Code Generation: A Systematic Investigation.
+ACM Trans. Softw. Eng. Methodol., v. 34, n. 8.
+
+\bibitem{wu2025}
+Wu, Z., Zhi, C., Han, J., Deng, S. and Yin, J. (2025).
+LLMAppHub: A Large Collection of LLM-based Applications for the Research Community.
+In Proceedings of the 33rd ACM International Conference on the Foundations of Software Engineering (FSE Companion ’25).
+Association for Computing Machinery.
+https://doi.org/10.1145/3696630.3731439.
+
+\end{thebibliography}
+
+\end{document}
