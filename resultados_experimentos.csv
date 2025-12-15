@@ -1,0 +1,5 @@
+cenário,taxa_detecção,falsos_positivos,latência_média_ms,throughput_req_por_segundo
+Prompt Seguro,1.0,1.0,13.28,75.28
+Prompt Injection 1,1.0,0.0,8.73,114.6
+Prompt Injection 2,1.0,0.0,8.56,116.76
+Prompt Longo Demais,1.0,0.0,8.97,111.46

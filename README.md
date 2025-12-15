@@ -1,4 +1,3 @@
-
 # Segurança, Privacidade e Conformidade em Aplicações com LLMs
 
 Repositório da disciplina de **Segurança da Informação** do curso de Bacharelado em Ciência da Computação (UFAPE), dedicado ao desenvolvimento de um **proof-of-concept (PoC)** de segurança para aplicações baseadas em **Large Language Models (LLMs)**.
@@ -66,116 +65,102 @@ Projetar, implementar e avaliar um **middleware de segurança para uma aplicaç�
 
 ---
 
-## 3. Arquitetura proposta (visão de alto nível)
+## 3. Arquitetura de alto nível
 
-A aplicação é estruturada como um **middleware de segurança** em frente à API de LLM (Gemini):
+A PoC é implementada como um **middleware de segurança** colocado entre os usuários internos e a API do LLM (Gemini). Toda requisição passa por uma sequência de camadas que combinam segurança, privacidade e conformidade, antes de chegar ao modelo.
+
+### 3.1. Fluxo geral
 
 ```text
 Usuário → API do Middleware → [Sanitização de entrada]
-                          → [Firewall LLM]
-                          → [RAG privado + ChromaDB]
-                          → [RBAC adaptativo (risk score)]
-                          → [Sanitização de saída]
-                          → [Auditoria + Mapper de conformidade]
-                          → LLM (Gemini API)
-                          → Resposta ao usuário
+                              → [Firewall LLM]
+                              → [RAG privado + ChromaDB]
+                              → [RBAC adaptativo (risk score)]
+                              → [Sanitização de saída]
+                              → [Auditoria + Mapper de conformidade]
+                              → LLM (Gemini API)
+                              → Resposta ao usuário
 ```
 
-### 3.1. Camadas principais
+Esse fluxo resume a visão do artigo: nenhum acesso ao LLM é feito sem passar por controles técnicos, e cada decisão é registrada de forma auditável.
 
-1. **Sanitização de entrada**
-   - Remoção/mascaramento de PII (NER + redaction).
-   - Normalização de formatos (encoding, quebras de linha, etc.).
-   - *Regex* + listas de bloqueio semânticas.
+### 3.2. Camadas principais
 
-2. **Firewall LLM**
-   - Regras estáticas para bloquear prompts maliciosos.
-   - Detecção semântica de instruções adversariais e *jailbreaks*.
-   - *Rate limiting* e controle de tamanho de prompt.
+1. **Sanitização de entrada**  
+   - Remoção ou mascaramento de PII (*Named Entity Recognition + redaction*).  
+   - Normalização de formatos e codificação (Unicode, espaços, tokens suspeitos).  
+   - Uso de regex e listas semânticas de bloqueio para termos e padrões de alto risco.
 
-3. **RAG privado (repositório de conhecimento)**
-   - Documentos institucionais neutros (sem PII) com metadados de confidencialidade.
-   - Armazenamento vetorial (ex.: ChromaDB) com embeddings do Gemini.
+2. **Firewall LLM**  
+   - Regras estáticas para bloquear prompts maliciosos e instruções claramente proibidas.  
+   - Heurísticas semânticas para detectar *prompt injection*, *jailbreaks* e tentativas de burlar políticas.  
+   - Mecanismos de **rate limiting** e controle de tamanho de *prompt* para mitigar *denial-of-wallet* e DoS lógico.
 
-4. **RBAC adaptativo**
-   - Cálculo de **risk score** por requisição (papel, horário, histórico, semântica).
-   - Limiar de risco para:
-     - permitir a resposta,
-     - exigir autenticação reforçada (*step-up*),
+3. **RAG privado (repositório de conhecimento)**  
+   - Conjunto de documentos institucionais neutros, previamente sanitizados, indexados em um banco vetorial (ex.: **ChromaDB**).  
+   - Embeddings gerados com modelos de embedding do provedor (ex.: Gemini `text-embedding-004`).  
+   - Metadados de confidencialidade e escopo que interagem com as regras de RBAC.
+
+4. **RBAC adaptativo (risk-based access control)**  
+   - Cálculo de um *risk score* por requisição, usando: papel do usuário, horário, contexto lógico, histórico de consultas e semântica do pedido.  
+   - Ações possíveis:  
+     - permitir a requisição,  
+     - exigir autenticação reforçada (*step-up*),  
      - ou bloquear e registrar incidente.
 
-5. **Sanitização de saída e auditoria**
-   - Filtros de PII e de conteúdos proibidos na resposta.
-   - Checagem de aderência a políticas específicas.
-   - Registro estruturado de logs em modo *append-only*.
+5. **Sanitização de saída**  
+   - Verificação da resposta do LLM para garantir que PII ou informações sensíveis não sejam reintroduzidas.  
+   - Bloqueio de conteúdos proibidos por política institucional ou regulatória.  
+   - Ajustes finais de formato e tom antes de retornar ao usuário.
 
-6. **Mapper de conformidade**
-   - Mapeia cada controle técnico para:
-     - artigos/requisitos do **EU AI Act**,
-     - boas práticas OWASP, ISO, ENISA.
-   - Gera evidências exportáveis (relatórios, dashboards).
+6. **Auditoria e telemetria**  
+   - Logs estruturados (idealmente em formato JSON) com: requisição, contexto, decisões tomadas, métricas de latência, custo e resultado final.  
+   - Registros em modo *append-only*, pensados para uso em auditorias posteriores.
+
+7. **Mapper de conformidade**  
+   - Componente responsável por mapear cada controle técnico a requisitos de normas e boas práticas (AI Act, OWASP LLM Top 10, ISO/IEC 27001, ENISA AI Security).  
+   - Geração de evidências exportáveis (relatórios, dashboards) a partir dos logs, permitindo demonstrar cobertura de requisitos.
 
 ---
 
-## 4. Organização do repositório (estrutura atual)
+## 4. Organização do repositório (estado atual)
 
-A partir da estrutura existente, o repositório está organizado em:
+Estrutura atual (resumida):
 
 ```text
 .
 ├── apresentacaoequipe/      # Material de apresentação da equipe
 ├── apresentacoes/           # Apresentações das atividades da disciplina
 ├── docs/                    # Documentação adicional (artigo, texto da disciplina, etc.)
+├── instrucoes_execucao/     # Guias passo a passo de execução e testes
 ├── outros_artefatos/        # PDFs, recursos auxiliares e materiais de apoio
 ├── src/                     # Código-fonte do protótipo (PoC)
 ├── .gitignore
 ├── README.md                # Este arquivo
 ├── docker-compose.yml       # Orquestração dos serviços em contêiner
-└── setup.sh                 # Script de configuração inicial do ambiente
+├── setup.sh                 # Script de configuração inicial do ambiente (Linux)
+├── EXECUTAR_TESTES.ps1      # Script PowerShell de execução de testes (Windows)
+└── TESTAR_API.ps1           # Script PowerShell para testar a API (Windows)
 ```
 
-A ideia é:
+Ideia geral:
 
-- centralizar **implementação e experimentos** em `src/` + `docker-compose.yml` + `setup.sh`;
-- manter **apresentações e entregas da disciplina** em `apresentacaoequipe/`, `apresentacoes/`, `docs/` e `outros_artefatos/`.
+- centralizar implementação e experimentos em `src/` + `docker-compose.yml` + scripts de setup e teste,
+- manter apresentações e entregas da disciplina em `apresentacaoequipe/`, `apresentacoes/`, `docs/`, `instrucoes_execucao/` e `outros_artefatos/`.
 
-### 4.1. Diretórios de documentação e apresentações
+Diretório de código-fonte (`src/`), em evolução incremental, concentra:
 
-- `apresentacaoequipe/`  
-  Apresentação da equipe (slides, PDFs de apresentação dos integrantes e do contexto do projeto).
+- ponto de entrada da aplicação (API do middleware),
+- camadas de segurança (sanitização, firewall, RAG, RBAC adaptativo, auditoria),
+- código de apoio a experimentos.
 
-- `apresentacoes/`  
-  Subpastas por atividade (ex.: `atividade02/`, `atividade03/`, `atividade04/`) contendo slides e materiais usados em sala.
-
-- `docs/`  
-  Textos de apoio, versões em PDF/LaTeX do artigo da disciplina, diagramas exportados, descrição da metodologia etc.
-
-- `outros_artefatos/`  
-  Materiais complementares que foram entregues ou utilizados ao longo da disciplina (relatórios, rascunhos, arquivos da UFAPE, etc.).
-
-### 4.2. Diretório de código-fonte (`src/`)
-
-O diretório `src/` concentra o código da PoC. Uma organização recomendada é:
-
-```text
-src/
-├── main.py                  # Ponto de entrada da aplicação (API do middleware)
-├── config/                  # Configurações de ambiente e carregamento de .env
-├── firewall_llm/            # Regras e detectores de prompt injection/jailbreak
-├── sanitization/            # Sanitização de entrada e saída (PII, conteúdo proibido)
-├── rbac_adaptativo/         # Mecanismo de RBAC + cálculo de risk score
-├── rag/                     # Integração com banco vetorial e recuperação de contexto
-├── auditoria/               # Registro de trilhas de auditoria e logs estruturados
-└── compliance_mapper/       # Mapeamento de controles → requisitos de conformidade
-```
-
-Se a estrutura interna atual do `src/` ainda estiver diferente, a migração pode ser feita de forma incremental, respeitando a evolução da disciplina.
+A organização fina em submódulos (por exemplo `firewall_llm/`, `sanitization/`, `rbac_adaptativo/`, `rag/`, `auditoria/`, `compliance_mapper/`) pode ser consolidada à medida que a implementação avança, seguindo o que foi discutido em sala.
 
 ---
 
-## 5. Estrutura alternativa (encaminhamento futuro)
+## 5. Estrutura alternativa (possível encaminhamento futuro)
 
-Caso o projeto evolua para um **framework reutilizável** ou uma base para TCC/artigos futuros, uma estrutura ligeiramente mais modular pode ser adotada:
+Caso o projeto evolua para um framework reutilizável ou base para TCC ou artigos futuros, uma estrutura mais modular pode ser adotada:
 
 ```text
 .
@@ -219,11 +204,7 @@ Caso o projeto evolua para um **framework reutilizável** ou uma base para TCC/a
     └── public_admin_assistant/
 ```
 
-Essa organização facilita:
-
-- separar o **núcleo de segurança** (`src/core`) da camada de exposição (`src/api`) e da automação (`src/cli`);
-- diferenciar configuração de desenvolvimento e produção em `infra/`;
-- criar exemplos de referência por domínio na pasta `examples/`.
+Essa organização facilita separar o núcleo de segurança (`src/core`) da camada de exposição (`src/api`) e da automação (`src/cli`), diferenciar configuração de desenvolvimento e produção em `infra/` e criar exemplos de referência por domínio na pasta `examples/`.
 
 ---
 
@@ -231,28 +212,29 @@ Essa organização facilita:
 
 ### 6.1. Hardware mínimo
 
-- Host (ou VM) com:
-  - **4 vCPUs**;
-  - **8–16 GB de RAM**;
-  - **≥ 40 GB** de armazenamento.
-- Conexão estável à Internet (acesso à API do LLM).
-- Opcional: GPU para experimentos mais pesados (não obrigatório na PoC inicial).
+- Host ou VM com:
+  - 4 vCPUs
+  - 8–16 GB de RAM
+  - pelo menos 40 GB de armazenamento
+- Conexão estável à Internet (acesso à API do LLM)
+- Opcional: GPU para experimentos mais pesados (não obrigatório na PoC inicial)
 
 ### 6.2. Software de base
 
 - Sistema operacional:
-  - Linux (ex.: Ubuntu Server) nativo ou em VM (VirtualBox, VMware, KVM).
+  - Linux (por exemplo, Ubuntu Server) nativo ou em VM (VirtualBox, VMware, KVM)
+  - Windows pode ser usado como host da VM ou via WSL2
 - Ferramentas:
-  - **Docker Engine** + **Docker Compose**;
-  - **Git**;
-  - Python **3.10+** (para scripts locais, se necessário).
+  - Docker Engine e Docker Compose
+  - Git
+  - Python 3.10 ou superior (para scripts locais, se necessário)
 
 ### 6.3. Contas externas e segredos
 
-- Chave de API válida para o provedor de LLM (ex.: Gemini).
+- Chave de API válida para o provedor de LLM (por exemplo, Gemini)
 - Arquivo `.env` (não versionado) com, por exemplo:
 
-```env
+```text
 GEMINI_API_KEY=SEU_TOKEN_AQUI
 APP_ENV=dev
 APP_PORT=8000
@@ -273,20 +255,22 @@ cd seguranca_da_informacao
 
 ### 7.2. Criar o `.env`
 
-Crie o arquivo `.env` na raiz (ou conforme esperado pela aplicação) com as variáveis necessárias para:
+Crie o arquivo `.env` na raiz com as variáveis necessárias para:
 
-- chave de API do LLM;
-- parâmetros da aplicação (porta, flags de debug);
+- chave de API do LLM,
+- parâmetros da aplicação (porta, flags de debug),
 - configuração de banco vetorial (host, porta, etc.).
 
 ### 7.3. Executar o script de setup
 
-O arquivo `setup.sh` automatiza parte do processo de preparação (instalação de dependências, criação de pastas de dados, etc.). Execute:
+Em ambientes Linux:
 
 ```bash
 chmod +x setup.sh
 ./setup.sh
 ```
+
+Em ambientes Windows, consulte os materiais em `instrucoes_execucao/` e os scripts PowerShell para auxiliar na configuração local.
 
 ### 7.4. Subir os contêineres
 
@@ -300,16 +284,30 @@ Isso deve subir:
 
 - o contêiner da aplicação (middleware de segurança),
 - o serviço de banco vetorial (se configurado),
-- serviços auxiliares necessários para o PoC.
+- serviços auxiliares necessários para a PoC.
 
 ---
 
-## 8. Execução de experimentos (visão geral)
+## 8. Scripts auxiliares (testes e diagnóstico)
 
-A PoC é pensada para testar diferentes **cenários de segurança** em cima da mesma aplicação:
+Para facilitar testes rápidos, o repositório inclui scripts PowerShell, pensados para uso em ambientes Windows:
+
+- `EXECUTAR_TESTES.ps1`  
+  Script para executar o conjunto de testes automatizados definidos para o middleware (por exemplo, chamadas à API, cenários de ataque sintéticos e verificações de resposta).
+
+- `TESTAR_API.ps1`  
+  Script para fazer chamadas de teste à API do middleware, verificando se a aplicação está respondendo como esperado depois de subir os contêineres.
+
+Os detalhes de uso desses scripts são documentados em `instrucoes_execucao/`. O conteúdo pode evoluir conforme novos testes são adicionados.
+
+---
+
+## 9. Execução de experimentos (visão geral)
+
+A PoC é pensada para testar diferentes cenários de segurança em cima da mesma aplicação:
 
 1. **Baseline**  
-   LLM com configuração mínima (quase sem controles).
+   LLM com configuração mínima, quase sem controles.
 
 2. **Baseline + Firewall LLM**
 
@@ -318,43 +316,89 @@ A PoC é pensada para testar diferentes **cenários de segurança** em cima da m
 4. **Baseline + Firewall + RAG + RBAC adaptativo**
 
 5. **Pipeline completo**  
-   Todas as camadas ativas: sanitização de entrada/saída, firewall, RAG, RBAC, auditoria e mapper de conformidade.
+   Todas as camadas ativas: sanitização de entrada e saída, firewall, RAG, RBAC, auditoria e mapper de conformidade.
 
-Scripts específicos (por exemplo, `run_experiments.py`) podem ser adicionados em `src/` ou em um diretório `scripts/` para:
+Scripts específicos (por exemplo, `run_experiments.py`) podem ser adicionados em `src/` ou em um diretório `scripts/` no futuro para:
 
 - orquestrar os cenários,
-- disparar ataques/prompt adversariais,
-- e salvar métricas em arquivos (CSV, JSON) para posterior análise.
+- disparar ataques ou prompts adversariais,
+- salvar métricas em arquivos (CSV, JSON) para posterior análise.
+
+### 9.1. Resultados parciais da Sprint II
+
+Durante a sprint focada em **Execução da Implementação (Parte II)**, foram realizados testes controlados do middleware defensivo com quatro cenários de uso:
+
+- **Prompt Seguro**  
+- **Prompt Injection 1**  
+- **Prompt Injection 2**  
+- **Prompt Longo Demais**  
+
+Para cada cenário foram coletadas métricas de:
+
+- taxa de detecção,  
+- número de falsos positivos,  
+- latência média (ms),  
+- throughput (requisições por segundo).  
+
+#### 9.1.1. Síntese dos resultados
+
+- **100% de detecção** em todos os cenários de teste.  
+- Apenas **1 falso positivo**, observado no cenário *Prompt Seguro*.  
+- **Latência média** entre aproximadamente **8,56 ms e 13,28 ms**.  
+- **Throughput** entre aproximadamente **75 req/s e 117 req/s**.  
+
+#### 9.1.2. Tabela consolidada
+
+| Cenário              | Detecção | Falsos Positivos | Latência (ms) | Throughput (req/s) |
+|----------------------|----------|------------------|----------------|---------------------|
+| Prompt Seguro        | 100%     | 1                | 13.28          | 75.28              |
+| Prompt Injection 1   | 100%     | 0                | 8.73           | 114.60             |
+| Prompt Injection 2   | 100%     | 0                | 8.56           | 116.76             |
+| Prompt Longo Demais  | 100%     | 0                | 8.97           | 111.46             |
+
+#### 9.1.3. Interpretação
+
+- O firewall LLM e as rotinas de sanitização estão conseguindo bloquear a totalidade dos ataques de *prompt injection* avaliados.  
+- O impacto de desempenho é baixo, com latências compatíveis com uso interativo.  
+- A ocorrência de um único falso positivo indica necessidade de ajuste fino dos limiares de detecção, mas já sugere boa calibragem inicial.  
+
+O relatório detalhado dos testes se encontra em apresentações:
+
+```text
+apresentacoes/apresentação_atividade06.pdf
+```
+
+Esse documento descreve o procedimento dos testes e as métricas geradas a partir da PoC em execução.
 
 ---
 
-## 9. Reprodutibilidade
+## 10. Reprodutibilidade
 
 Para que outra pessoa consiga reproduzir o estudo, basta:
 
 1. Clonar o repositório e configurar o `.env`.  
-2. Executar `setup.sh` para preparar o ambiente.  
+2. Executar `setup.sh` para preparar o ambiente (ou seguir as instruções equivalentes em Windows).  
 3. Subir os serviços com `docker compose up -d`.  
 4. Popular o banco vetorial (se houver script de *seed*).  
-5. Rodar os scripts de experimento e analisar os resultados.
+5. Usar os scripts de teste (`EXECUTAR_TESTES.ps1`, `TESTAR_API.ps1` e futuros scripts Python) e analisar os resultados.  
 
-A documentação em `docs/` e as apresentações em `apresentacoes/` ajudam a entender o racional por trás das escolhas de arquitetura e metodologia.
-
----
-
-## 10. Referências (nível de disciplina)
-
-- Rathod et al. (2024). *Privacy and Security Challenges in Large Language Models*.  
-- Yarram et al. (2024). *Privacy-Preserving Healthcare Data Security Using LLMs and Adaptive Access Control*.  
-- Bunzel (2024). *Compliance Made Practical: Translating the EU AI Act into Implementable Security Actions*.
+A documentação em `docs/` e as apresentações em `apresentacoes/` ajudam a entender o racional por trás das escolhas de arquitetura e metodologia, e se conectam diretamente ao texto do artigo da disciplina.
 
 ---
 
-## 11. Integrantes da equipe
+## 11. Referências (nível de disciplina)
 
-- **Leonardo Nunes**  
-- **Antônio Marcos**  
-- **Álvaro Gueiros**  
-- **Lucas William**  
-- **Mauro Vinícius**  
-- **Vandielson Tenório**
+- Rathod et al. (2024). *Privacy and Security Challenges in Large Language Models.*  
+- Yarram et al. (2024). *Privacy-Preserving Healthcare Data Security Using LLMs and Adaptive Access Control.*  
+- Bunzel (2024). *Compliance Made Practical: Translating the EU AI Act into Implementable Security Actions.*  
+
+---
+
+## 12. Integrantes da equipe
+
+- Leonardo Nunes  
+- Antônio Marcos  
+- Álvaro Gueiros  
+- Lucas William  
+- Mauro Vinícius  
+- Vandielson Tenório  
